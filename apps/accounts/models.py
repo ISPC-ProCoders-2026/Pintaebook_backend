@@ -3,7 +3,7 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 
 class CustomUserManager(BaseUserManager):
-    """Manager personalizado para autenticación vía email"""
+    """Manager personalizado para autenticación vía email. Asistente interno del modelo que le enseña a Django cómo crear usuarios y superusuarios usando Email en lugar de Username (Panel de Django, no tiene que ver con el registro de usuarios normales.)."""
     def create_user(self, email, password=None, **extra_fields):
         if not email:
             raise ValueError('El email es obligatorio.')
