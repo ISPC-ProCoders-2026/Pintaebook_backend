@@ -1,7 +1,24 @@
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
-from .models import User
+from .models import Role, User
+
+
+class UserSerializer(serializers.ModelSerializer):
+    """Serializer de salida para representar la información pública del usuario."""
+    role = serializers.CharField(source='role.nombre_rol', read_only=True)
+
+    class Meta:
+        model = User
+        fields = (
+            'id',
+            'email',
+            'first_name',
+            'last_name',
+            'role',
+            'created_at',
+        )
+        read_only_fields = ('id', 'created_at')
 
 
 class LoginSerializer(serializers.Serializer):
@@ -39,4 +56,8 @@ class RegisterSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
+        # Buscamos el rol AUTOR sembrado en la base de datos
+        autor_role = Role.objects.filter(nombre_rol=Role.RoleName.AUTOR).first()
+        validated_data['role'] = autor_role
+        
         return User.objects.create_user(**validated_data)
