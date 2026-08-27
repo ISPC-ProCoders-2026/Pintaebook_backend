@@ -25,16 +25,20 @@ def user_data(user):
         'last_name': user.last_name,
     }
 
-def authenticate_google_user(google_jwt: str) -> dict:  
+def authenticate_google_user(google_jwt: str) -> dict:
     """
     Verifica el token de Google, obtiene o crea el usuario en PostgreSQL
     y genera los tokens JWT propios de Pinta Ebook.
     """
-    try: 
+    try:
         # 1. Validar la firma contra los servidores de Google
-        idinfo = id_token.verify_oauth2_token(google_jwt, request.Request(), settings.GOOGLE_CLIENT_ID )
+        idinfo = id_token.verify_oauth2_token(
+            google_jwt, 
+            requests.Request(), 
+            settings.GOOGLE_CLIENT_ID
+        )
     except ValueError:
-        raise AuthenticationFailed("Token de Google inválido o expirado.")
+        raise AuthenticationFailed('El token de Google es inválido o ha expirado.')
 
     # 2. Extraer datos del perfil
     email = idinfo.get('email')
@@ -44,21 +48,21 @@ def authenticate_google_user(google_jwt: str) -> dict:
     if not email:
         raise AuthenticationFailed('No se pudo obtener el email de la cuenta de Google.')
 
-    # 3. Buscar o crear el usuario en la DB.abs
+    # 3. Buscar o crear el usuario en la BD
     user = User.objects.filter(email=email).first()
 
     if not user:
-        author_role = Role.objects.filter(code='author').first()
+        author_role = Role.objects.filter(nombre_rol='author').first()
         user = User.objects.create_user(
             email=email,
             first_name=first_name,
             last_name=last_name,
-            role=author_role    
+            role=author_role
         )
-    user.set_unusable_password()
-    user.save()
+        user.set_unusable_password()
+        user.save()
 
-    # 4. Generar nuestros tokens globales
+    # 4. Generar nuestros tokens JWT locales
     tokens = generate_tokens(user)
 
     return {

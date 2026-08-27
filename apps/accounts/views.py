@@ -11,13 +11,13 @@ from .services import generate_tokens, authenticate_google_user
 
 # OAuth 2.0:
 class GoogleLoginView(APIView):
-    permission_classes = [] # Endpoint publico
+    permission_classes = []  # Endpoint público
 
     def post(self, request):
-        serializer = GoogleAuthSerializer(data=request.data) # Valida los datos de la request
+        serializer = GoogleAuthSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        result = authenticate_google_user(serializer.validated_data["id_token"])
+        result = authenticate_google_user(serializer.validated_data['id_token'])
         user = result['user']
         tokens = result['tokens']
 
