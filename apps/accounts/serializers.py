@@ -23,12 +23,12 @@ class UserSerializer(serializers.ModelSerializer):
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
-    password = serializers.CharField(write_only=True)
+    password = serializers.CharField(write_only=True) # Write only: no se muestra en la respuesta.
 
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(
-        write_only=True,
+        write_only=True, # Write only: no se muestra en la respuesta.
         min_length=8
     )
 
@@ -61,3 +61,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         validated_data['role'] = autor_role
         
         return User.objects.create_user(**validated_data)
+
+class GoogleAuthSerializer(serializers.Serializer):
+    id_token = serializers.CharField(required=True, error_messages={'required': 'El Id_token es obligatorio'}) #Token que envia el frontend luego de conectar con google.}
+

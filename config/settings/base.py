@@ -21,6 +21,10 @@ DEBUG = env('DEBUG')
 
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=[])
 
+#Google Auth Settings
+GOOGLE_CLIENT_ID = env('GOOGLE_CLIENT_ID')
+
+
 # Application definition
 
 INSTALLED_APPS = [
