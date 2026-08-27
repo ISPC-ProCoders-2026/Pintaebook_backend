@@ -5,10 +5,35 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 
-from .serializers import LoginSerializer, RegisterSerializer, UserSerializer
-from .services import generate_tokens
+from .serializers import LoginSerializer, RegisterSerializer, UserSerializer,GoogleAuthSerializer
+from .services import generate_tokens, authenticate_google_user
 
 
+# OAuth 2.0:
+class GoogleLoginView(APIView):
+    permission_classes = [] # Endpoint publico
+
+    def post(self, request):
+        serializer = GoogleAuthSerializer(data=request.data) # Valida los datos de la request
+        serializer.is_valid(raise_exception=True)
+
+        result = authenticate_google_user(serializer.validated_data["id_token"])
+        user = result['user']
+        tokens = result['tokens']
+
+        return Response({
+            'access': tokens['access'],
+            'refresh': tokens['refresh'],
+            'user': {
+                'id': str(user.id),
+                'email': user.email,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'role': user.role.code if user.role else None,
+            }
+        }, status=status.HTTP_200_OK)
+
+# AUTH JWT:
 class RegisterView(APIView):
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
