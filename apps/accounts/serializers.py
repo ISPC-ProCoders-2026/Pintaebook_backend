@@ -23,12 +23,12 @@ class UserSerializer(serializers.ModelSerializer):
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
-    password = serializers.CharField(write_only=True)
+    password = serializers.CharField(write_only=True) # Write only: no se muestra en la respuesta.
 
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(
-        write_only=True,
+        write_only=True, # Write only: no se muestra en la respuesta.
         min_length=8
     )
 
