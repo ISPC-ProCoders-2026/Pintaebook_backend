@@ -1,1 +1,33 @@
-# Docker compose configuration for PintaEbook Backend
+# Docker compose configuration for PintaEbook Backend testing
+services:
+  # --- CONTENEDOR 1: BASE DE DATOS ---
+  db:
+    image: postgres:16-alpine    # Descarga la imagen oficial de PostgreSQL 16
+    container_name: pintaebook_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pintaebook_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data  # Guarda los datos en disco para no perderlos si se apaga
+    ports:
+      - "5432:5432"
+
+  # --- CONTENEDOR 2: DJANGO BACKEND ---
+  web:
+    build: .                     # Le dice a Docker que lea el 'Dockerfile' creado en el paso 6
+    container_name: pintaebook_backend
+    restart: unless-stopped
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app                   # Mapea tu carpeta local con el contenedor: si editas código, cambia en vivo
+    ports:
+      - "8000:8000"              # Expone el puerto 8000 hacia tu Windows
+    env_file:
+      - .env
+    depends_on:
+      - db                       # Espera a que PostgreSQL arranque antes de iniciar Django
+
+volumes:
+  postgres_data:
