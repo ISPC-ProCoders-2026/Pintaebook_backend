@@ -35,3 +35,10 @@ pintaebook_backend/
 │   └── billing/           # Sistema de créditos y suscripciones (en desarrollo)
 ├── config/                # Configuraciones base, local y producción
 └── requirements.txt       # Dependencias del proyecto
+
+## Levantar back-end:
+
+1. Usar las variables en .env correspondientes declaradas en la documentacion.
+2. Teniendo ya sea Docker Desktop: docker compose up -d --build | Teniendo Docker WSL2 por ubuntu: sudo docker compose up -d --build
+3. Aplicar los esquemas a la base de datos dentro del contenedor:
+docker compose exec web python manage.py migrate
