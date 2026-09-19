@@ -2,7 +2,6 @@ import uuid
 from django.db import models
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.conf import settings
-from django.db import models
 
 class Role(models.Model):
     """
@@ -90,27 +89,3 @@ class User(AbstractUser):
 
     def __str__(self):
         return f"{self.email} ({self.role.nombre_rol if self.role else 'Sin Rol'})"
-
-class EbookMetadata(models.Model):
-    """
-    Metadatos relacionales del libro (PostgreSQL).
-    El contenido editable vive en MongoDB, colección 'ebook_contents',
-    y se vincula por el mismo UUID (este 'id' es el ebook_id).
-    """
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    author = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.RESTRICT,  # obliga a borrar libros por la vía coordinada (services.delete_ebook)
-        related_name='ebooks',
-    )
-    title = models.CharField(max_length=255)
-    description = models.TextField(blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = 'ebook_metadata'
-        ordering = ['-created_at']
-
-    def __str__(self):
-        return f"{self.title} ({self.id})"
