@@ -2,6 +2,8 @@ from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
 from .models import Role, User
+from . import services
+from .models import EbookMetadata
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -65,3 +67,15 @@ class RegisterSerializer(serializers.ModelSerializer):
 class GoogleAuthSerializer(serializers.Serializer):
     id_token = serializers.CharField(required=True, error_messages={'required': 'El Id_token es obligatorio'}) #Token que envia el frontend luego de conectar con google.}
 
+class EbookSerializer(serializers.ModelSerializer):
+    """Serializer del libro. El ebook_id y el autor nunca vienen del cliente."""
+    ebook_id = serializers.UUIDField(source='id', read_only=True)
+
+    class Meta:
+        model = EbookMetadata
+        fields = ('ebook_id', 'title', 'description', 'created_at', 'updated_at')
+        read_only_fields = ('ebook_id', 'created_at', 'updated_at')
+
+    def create(self, validated_data):
+        # validated_data incluye 'author', que la vista pasa con serializer.save(author=...)
+        return services.create_ebook(**validated_data)
