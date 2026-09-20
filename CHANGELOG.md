@@ -50,3 +50,66 @@ Se diseñó e implementó la arquitectura base para la gestión de identidades, 
 * Verificación manual de códigos de respuesta HTTP (`200`, `201`, `400`, `401`) mediante Django REST Framework `APIClient` y Postman.
 * Pruebas de integración del flujo de Google OAuth utilizando tokens reales generados con Google OAuth Playground.
 * Validación de restricciones de base de datos, unicidad de correo y asignación de roles en PostgreSQL.
+
+## Sprint 3 - Facturación de Créditos, Infraestructura de IA y Persistencia Híbrida
+
+### Resumen General
+Se diseñó e implementó la persistencia híbrida coordinada (PostgreSQL + MongoDB Atlas) junto al núcleo transaccional de facturación y la orquestación con modelos de lenguaje masivos (LLMs) vía OpenRouter. El sistema permite a los autores aprovisionarse automáticamente de saldo promocional, generar libros completos estructurados en HTML desde su creación inicial, guardar y reordenar capítulos de forma reactiva en el editor, y solicitar refinamientos puntuales con IA con débito y auditoría de tokens.
+
+---
+
+### Cambios e Implementaciones Detalladas
+
+#### 1. Persistencia Documental y Conectividad NoSQL (`core/mongodb.py`)
+* **Singleton MongoDB Atlas:** Creación del helper `get_mongo_db()` con pooling de conexiones persistente y timeout preventivo de 5 segundos.
+* **Colección `ebook_contents`:** Diseñada para almacenar el árbol completo de capítulos y secciones en código HTML sanitizado.
+* **Colección `ia_prompt_logs`:** Implementada para auditoría inmutable de interacciones y métricas de tokens.
+
+#### 2. Catálogo y Creación Asistida de E-books (`apps/ebooks`)
+* **Modelo `EbookMetadata`:** Mapeado a la tabla relacional `ebook_metadata` en PostgreSQL para registrar el identificador primario (`UUID`), título, descripción y autor (`ForeignKey` con política `ON DELETE RESTRICT`).
+* **Generación Asistida en Creación (`POST /api/ebooks/`):** El servicio `create_ebook` comprueba y debita atómicamente 100 créditos en PostgreSQL, orquesta la inferencia del árbol de capítulos con IA y persiste el documento resultante en `ebook_contents` de MongoDB Atlas vinculándolo mediante el `ebook_id`.
+* **Rollback Coordinado:** Si la escritura en MongoDB falla, la transacción de PostgreSQL se revierte por completo (`transaction.atomic()`), retornando error `503 Service Unavailable` sin cobro de saldo.
+* **Borrado Coordinado:** Eliminación transaccional en PostgreSQL con supresión pasiva en MongoDB capturando caídas de red para prevenir errores de cara al usuario.
+
+#### 3. Estructura del Editor y Auto-guardado (`apps/content`)
+* **Recuperación del Árbol (`GET /api/ebooks/<id>/content/`):** Retorna la jerarquía completa de capítulos y secciones para renderizar el editor visual en Angular.
+* **Guardado Reactivo (`PATCH /api/ebooks/<id>/content/`):** Permite actualizar el código HTML de secciones o reordenar capítulos mediante Drag & Drop sin consumo de créditos.
+* **Control de Concurrencia Optimista (OCC):** Control atómico por versionado incremental en MongoDB (`version`: `$inc`), con hasta 3 reintentos automáticos ante conflictos de concurrencia y respuesta `409 Conflict` si el choque persiste.
+* **Seguridad XSS:** Sanitización exhaustiva del HTML entrante mediante la biblioteca de alto rendimiento `nh3`.
+
+#### 4. Billetera y Control de Saldo (`apps/billing`)
+* **Modelo `CreditBalance`:** Tabla relacional `balances_credito` en PostgreSQL vinculada 1 a 1 con el usuario autenticado.
+* **Aprovisionamiento de Cortesía:** Django Signal (`post_save`) sobre `User` para inicializar automáticamente la billetera con 100 créditos de bienvenida tras el registro local o federado con Google OAuth 2.0.
+* **Débito Atómico y Concurrente:** `BillingService.deduct_credits` implementa bloqueo pesimista a nivel de fila (`select_for_update`), neutralizando condiciones de carrera y arrojando `402 Payment Required` ante saldo insuficiente.
+* **Consulta de Saldo (`GET /api/billing/balance/`):** Endpoint autenticado que retorna los créditos disponibles y fecha de última actualización.
+
+#### 5. Infraestructura de Inferencia de IA (`infrastructure/ai_client.py`)
+* **Cliente HTTP Desacoplado:** Centraliza llamadas hacia la API de OpenRouter con gestión de encabezados técnicos (`HTTP-Referer`, `X-Title`), `System Prompt` semántico y límite estricto de espera (`timeout = 30s`).
+* **Aislamiento por Modo Simulado (`AI_MOCK_MODE`):** Soporte por variable de entorno para testing local y desarrollo sin conexión ni consumo de cuota.
+* **Excepciones Tipadas de DRF:** Mapeo automático de errores de infraestructura a `503 Service Unavailable` y `504 Gateway Timeout`.
+
+#### 6. Motor Asistido y Auditoría NoSQL (`apps/ai_engine`)
+* **Refinamiento Puntual (`POST /api/ai/generate/`):** Endpoint que valida titularidad de la obra, verifica saldo, descuenta 10 créditos, genera el fragmento con IA y actualiza la sección en MongoDB.
+* **Auditoría Inmutable (`ia_prompt_logs`):** Registro seguro de `user_id`, `ebook_id`, `provider`, `model`, `prompt` y `tokens_used`, encapsulado con manejo de errores no bloqueante para resiliencia del servicio.
+
+---
+
+### Resumen de Endpoints Disponibles (Sprint 3)
+
+| Método | Endpoint | Descripción | Requiere Autenticación | Costo en Créditos |
+| :--- | :--- | :--- | :--- | :--- |
+| `GET` | `/api/billing/balance/` | Consulta de saldo de créditos disponibles | Sí | Gratuito (0) |
+| `POST` | `/api/ebooks/` | Creación de libro y redacción inicial con IA | Sí | 100 créditos |
+| `GET` | `/api/ebooks/` | Listado de libros pertenecientes al autor | Sí | Gratuito (0) |
+| `GET` | `/api/ebooks/<id>/` | Metadatos detallados de un libro | Sí | Gratuito (0) |
+| `DELETE` | `/api/ebooks/<id>/` | Eliminación coordinada en PostgreSQL y MongoDB | Sí | Gratuito (0) |
+| `GET` | `/api/ebooks/<id>/content/` | Obtención del árbol completo de capítulos/secciones | Sí | Gratuito (0) |
+| `PATCH` | `/api/ebooks/<id>/content/` | Auto-guardado de texto u orden de capítulos | Sí | Gratuito (0) |
+| `POST` | `/api/ai/generate/` | Generación y refinamiento puntual de sección | Sí | 10 créditos |
+
+---
+
+### Pruebas Realizadas
+* Ejecución integral de 30 tests unitarios y de integración (`apps.ebooks`, `apps.content`, `apps.billing`, `apps.ai_engine`) ejecutados satisfactoriamente dentro del contenedor Docker.
+* Validación de transacciones concurrentes y aislamiento de lecturas en PostgreSQL.
+* Simulación de contingencias y desconexión de red en MongoDB Atlas comprobando la resiliencia en fallbacks y rollbacks.
