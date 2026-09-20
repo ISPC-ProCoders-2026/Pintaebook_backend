@@ -31,7 +31,7 @@ pintaebook_backend/
 |-- apps/
 |   |-- accounts/          # Autenticación, usuarios y roles (JWT y Google OAuth)
 |   |-- billing/           # Billetera de créditos, transacciones y deducción pesimista
-|   |-- ebooks/            # Gestión del catálogo de obras y creación asistida
+|   |-- ebooks/            # Catálogo, creación asistida, paginación y filtros
 |   |-- content/           # Almacenamiento del árbol HTML en MongoDB y concurrencia optimista
 |   |-- ai_engine/         # Inferencia puntual, refinamiento de texto y auditoría
 |   |-- exporter/          # Exportación multiformato EPUB/PDF (fase posterior)
@@ -110,6 +110,21 @@ Aplicar el esquema inicial en PostgreSQL:
 docker compose exec web python manage.py migrate
 ```
 
+### 4. Ejecutar Pruebas Automatizadas
+
+Correr la suite completa de pruebas unitarias y de integración:
+
+```bash
+docker compose exec web python manage.py test
+```
+
+También es posible ejecutar pruebas sobre aplicaciones específicas:
+
+```bash
+docker compose exec web python manage.py test apps.ebooks apps.content apps.billing apps.ai_engine
+```
+
+---
 
 ## Referencia de la API
 
@@ -124,7 +139,7 @@ Todas las rutas protegidas requieren el encabezado HTTP:
 | POST | `/api/auth/login/` | Autenticación con credenciales y emisión de tokens JWT | Público |
 | POST | `/api/auth/google/` | Autenticación / registro federado mediante Google OAuth | Público |
 | POST | `/api/auth/refresh/` | Renovación del token de acceso | Público |
-| GET | `/api/auth/me/` | Información del usuario autenticado | Privado |
+| GET | `/api/auth/me/` | Información del perfil del usuario autenticado | Privado |
 
 ### Billetera y Créditos (`apps/billing`)
 
@@ -136,7 +151,7 @@ Todas las rutas protegidas requieren el encabezado HTTP:
 
 | Método | Ruta | Descripción | Acceso |
 |---|---|---|---|
-| GET | `/api/ebooks/` | Lista de libros creados por el usuario activo | Privado |
+| GET | `/api/ebooks/` | Catálogo paginado (10/pág) con filtros (`?search=`, `?created_after=`, `?ordering=`) | Privado |
 | POST | `/api/ebooks/` | Creación de libro con estructura base asistida por IA (costo: 100 créditos) | Privado |
 | GET | `/api/ebooks/<id>/` | Detalle y metadatos de un e-book específico | Privado |
 | DELETE | `/api/ebooks/<id>/` | Eliminación coordinada en PostgreSQL y MongoDB | Privado |
@@ -146,13 +161,13 @@ Todas las rutas protegidas requieren el encabezado HTTP:
 | Método | Ruta | Descripción | Acceso |
 |---|---|---|---|
 | GET | `/api/ebooks/<id>/content/` | Obtención del árbol documental de capítulos y secciones | Privado |
-| PATCH | `/api/ebooks/<id>/content/` | Guardado de contenido HTML y reordenamiento estructural | Privado |
+| PATCH | `/api/ebooks/<id>/content/` | Guardado reactivo de contenido HTML y reordenamiento estructural (gratuito) | Privado |
 
 ### Motor de Inteligencia Artificial (`apps/ai_engine`)
 
 | Método | Ruta | Descripción | Acceso |
 |---|---|---|---|
-| POST | `/api/ai/generate/` | Generación y refinamiento puntual de contenido (costo: 10 créditos) | Privado |
+| POST | `/api/ai/generate/` | Generación y refinamiento puntual de contenido en sección (costo: 10 créditos) | Privado |
 
 ---
 
@@ -161,4 +176,4 @@ Todas las rutas protegidas requieren el encabezado HTTP:
 - Django Channels y Daphne: Transición a servidor ASGI para soportar WebSockets de larga duración.
 - Redis: Integración como capa de comunicación (Channel Layer) y cola de tareas en tiempo real.
 - Streaming de Inferencia: Emisión progresiva de tokens (efecto máquina de escribir) hacia el cliente web para reducir tiempos de espera percibidos y evitar bloqueos HTTP.
-- Exportador: Generación de archivos distribuidos en formatos EPUB y PDF.
+- Exportador (`apps/exporter`): Generación de archivos distribuidos en formatos multiformato (EPUB, PDF).
