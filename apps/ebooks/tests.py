@@ -1,3 +1,4 @@
+import json
 from unittest.mock import MagicMock, patch
 from django.contrib.auth import get_user_model
 from pymongo.errors import PyMongoError
@@ -38,7 +39,7 @@ class EbookApiTests(APITestCase):
     def test_crear_ebook_genera_contenido_y_debit_creditos(self, mock_log, mock_ai):
         mock_ai_instance = MagicMock()
         mock_ai_instance.generate_content.return_value = {
-            'html': '[{"title": "Cap 1", "sections": [{"title": "Sec 1", "html": "<p>Contenido</p>"}]}]',
+            'html': json.dumps([{"title": "Cap 1", "sections": [{"title": "Sec 1", "html": "<p>Contenido</p>"}]}]),
             'tokens_used': 200,
             'provider': 'openrouter',
             'model': 'test-model',
@@ -56,12 +57,11 @@ class EbookApiTests(APITestCase):
         ebook = EbookMetadata.objects.get()
         self.assertEqual(ebook.author, self.user)
         self.assertEqual(response.data['ebook_id'], str(ebook.id))
-        self.assertEqual(response.data['credits_available'], 0)  # 100 iniciales - 100 consumidos
+        self.assertEqual(response.data['credits_available'], 0)  # 100 iniciales - 100 costo de creación
 
         balance = CreditBalance.objects.get(usuario=self.user)
         self.assertEqual(balance.credits_available, 0)
 
-        # Validación del documento persistido en MongoDB
         doc = self.collection.insert_one.call_args[0][0]
         self.assertEqual(doc['_id'], str(ebook.id))
         self.assertEqual(doc['ebook_id'], str(ebook.id))
@@ -69,7 +69,7 @@ class EbookApiTests(APITestCase):
 
     def test_crear_ebook_sin_saldo_retorna_402(self):
         balance = CreditBalance.objects.get(usuario=self.user)
-        balance.credits_available = 20  # Menor al costo de 100
+        balance.credits_available = 20  # Saldo insuficiente frente a 100
         balance.save()
 
         response = self.client.post(self.url, {'title': 'Libro Rechazado'}, format='json')
@@ -77,14 +77,23 @@ class EbookApiTests(APITestCase):
         self.assertEqual(EbookMetadata.objects.count(), 0)
 
     @patch('apps.ebooks.services.AIClient')
-    def test_crear_ebook_hace_rollback_si_mongo_falla(self, mock_ai):
+    @patch('apps.ebooks.services.log_ia_interaction')
+    def test_crear_ebook_hace_rollback_si_mongo_falla(self, mock_log, mock_ai):
+        mock_ai_instance = MagicMock()
+        mock_ai_instance.generate_content.return_value = {
+            'html': json.dumps([{"title": "Cap 1", "sections": [{"title": "Sec 1", "html": "<p>Contenido</p>"}]}]),
+            'tokens_used': 100,
+            'provider': 'openrouter',
+            'model': 'test-model',
+        }
+        mock_ai.return_value = mock_ai_instance
+
         self.collection.insert_one.side_effect = PyMongoError('Mongo caído')
 
         response = self.client.post(self.url, {'title': 'Mi libro'}, format='json')
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertEqual(EbookMetadata.objects.count(), 0)
 
-        # El saldo no debe haberse debitado
         balance = CreditBalance.objects.get(usuario=self.user)
         self.assertEqual(balance.credits_available, 100)
 
@@ -96,6 +105,11 @@ class EbookApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([e['title'] for e in response.data], ['Propio'])
 
+    def test_detalle_de_libro_ajeno_devuelve_404(self):
+        ajeno = EbookMetadata.objects.create(author=self.other, title='Ajeno')
+        response = self.client.get(f'{self.url}{ajeno.id}/')
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_eliminar_borra_en_postgres_y_mongo(self):
         ebook = EbookMetadata.objects.create(author=self.user, title='Propio')
         ebook_id = str(ebook.id)
@@ -104,3 +118,16 @@ class EbookApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(EbookMetadata.objects.count(), 0)
         self.collection.delete_one.assert_called_once_with({'_id': ebook_id})
+
+    def test_eliminar_con_mongo_caido_igual_borra_el_libro(self):
+        ebook = EbookMetadata.objects.create(author=self.user, title='Propio')
+        self.collection.delete_one.side_effect = PyMongoError('Mongo caído')
+
+        response = self.client.delete(f'{self.url}{ebook.id}/')
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(EbookMetadata.objects.count(), 0)
+
+    def test_requiere_autenticacion(self):
+        self.client.force_authenticate(user=None)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

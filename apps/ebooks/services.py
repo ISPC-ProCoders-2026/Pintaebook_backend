@@ -15,7 +15,7 @@ from .models import EbookMetadata
 logger = logging.getLogger(__name__)
 
 CONTENTS_COLLECTION = 'ebook_contents'
-INITIAL_EBOOK_CREDIT_COST = 10
+INITIAL_EBOOK_CREDIT_COST = 100
 
 
 class EbookStorageError(APIException):
@@ -46,7 +46,7 @@ def _generate_initial_structure(title: str, prompt_idea: str, quantity: int) -> 
             prompt=consigna,
             system_prompt="Eres un editor profesional. Generas árboles de libros exclusivamente en formato JSON válido estructurado.",
         )
-        raw_text = ai_result['html'].strip()
+        raw_text = str(ai_result.get('html', '')).strip()
         if raw_text.startswith('```'):
             raw_text = raw_text.split('\n', 1)[-1].rsplit('```', 1)[0].strip()
 
@@ -71,7 +71,6 @@ def _generate_initial_structure(title: str, prompt_idea: str, quantity: int) -> 
             "model": "internal-fallback",
         }
 
-    # Asignar identificadores UUID únicos a cada capítulo y sección
     structured_chapters = []
     for chapter in parsed_chapters:
         ch_id = str(uuid.uuid4())
@@ -106,7 +105,7 @@ def create_ebook(
 ) -> EbookMetadata:
     """
     Crea el libro en PostgreSQL y MongoDB, genera su contenido inicial con IA
-    y debita el costo inicial de la billetera.
+    y debita el costo inicial de 100 créditos de la billetera.
     """
     is_admin = getattr(author, 'role', None) and getattr(author.role, 'nombre_rol', '') == 'ADMIN'
     current_balance = BillingService.get_balance(author)
@@ -116,7 +115,6 @@ def create_ebook(
             detail=f"Créditos insuficientes ({current_balance}/{INITIAL_EBOOK_CREDIT_COST}) para generar la obra con IA."
         )
 
-    # Inferencia de contenido antes de persistir
     generation_data = _generate_initial_structure(title, prompt_idea, quantity_chapters)
 
     try:
@@ -143,7 +141,6 @@ def create_ebook(
         logger.exception('Falló la creación del documento en MongoDB')
         raise EbookStorageError() from exc
 
-    # Auditoría no bloqueante
     log_ia_interaction(
         user_id=author.id,
         ebook_id=str(ebook.id),
