@@ -97,13 +97,31 @@ class EbookApiTests(APITestCase):
         balance = CreditBalance.objects.get(usuario=self.user)
         self.assertEqual(balance.credits_available, 100)
 
-    def test_listar_devuelve_solo_libros_propios(self):
+    def test_listar_devuelve_solo_libros_propios_paginados(self):
         EbookMetadata.objects.create(author=self.user, title='Propio')
         EbookMetadata.objects.create(author=self.other, title='Ajeno')
 
         response = self.client.get(self.url)
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([e['title'] for e in response.data], ['Propio'])
+        # Adaptado a PageNumberPagination (results y count)
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual([e['title'] for e in response.data['results']], ['Propio'])
+
+    def test_busqueda_avanzada_filtra_por_titulo_y_descripcion(self):
+        EbookMetadata.objects.create(author=self.user, title='Cocina Rápida', description='Recetas')
+        EbookMetadata.objects.create(author=self.user, title='Guía Fitness', description='Entrenamiento y cocina')
+        EbookMetadata.objects.create(author=self.user, title='Programación en Python', description='Backend')
+
+        # Buscar coincidencia textual en título o descripción
+        response = self.client.get(f'{self.url}?search=cocina')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 2)
+        titulos = [e['title'] for e in response.data['results']]
+        self.assertIn('Cocina Rápida', titulos)
+        self.assertIn('Guía Fitness', titulos)
+        self.assertNotIn('Programación en Python', titulos)
 
     def test_detalle_de_libro_ajeno_devuelve_404(self):
         ajeno = EbookMetadata.objects.create(author=self.other, title='Ajeno')
