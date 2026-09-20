@@ -1,6 +1,7 @@
 import uuid
 from django.db import models
 from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.conf import settings
 
 class Role(models.Model):
     """
@@ -88,4 +89,3 @@ class User(AbstractUser):
 
     def __str__(self):
         return f"{self.email} ({self.role.nombre_rol if self.role else 'Sin Rol'})"
-

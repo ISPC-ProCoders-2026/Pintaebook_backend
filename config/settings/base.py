@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'corsheaders',  # <- CORS
     'rest_framework',
     'apps.accounts',
+    'apps.ebooks',
 ]
 
 # Usuario activo

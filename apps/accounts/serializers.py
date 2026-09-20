@@ -64,4 +64,3 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 class GoogleAuthSerializer(serializers.Serializer):
     id_token = serializers.CharField(required=True, error_messages={'required': 'El Id_token es obligatorio'}) #Token que envia el frontend luego de conectar con google.}
-
