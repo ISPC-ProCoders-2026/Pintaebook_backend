@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'apps.ebooks',
     'apps.content',
     'apps.billing',
+    'apps.ai_engine',
 ]
 
 # Usuario activo
