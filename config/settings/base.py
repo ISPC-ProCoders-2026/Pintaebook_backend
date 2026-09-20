@@ -38,9 +38,12 @@ INSTALLED_APPS = [
     # Third party apps
     'corsheaders',  # <- CORS
     'rest_framework',
+
+    # Our apps
     'apps.accounts',
     'apps.ebooks',
     'apps.content',
+    'apps.billing',
 ]
 
 # Usuario activo
