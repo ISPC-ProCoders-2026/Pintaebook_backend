@@ -21,6 +21,10 @@ DEBUG = env('DEBUG')
 
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=[])
 
+#Google Auth Settings
+GOOGLE_CLIENT_ID = env('GOOGLE_CLIENT_ID')
+
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -34,7 +38,13 @@ INSTALLED_APPS = [
     # Third party apps
     'corsheaders',  # <- CORS
     'rest_framework',
+
+    # Our apps
     'apps.accounts',
+    'apps.ebooks',
+    'apps.content',
+    'apps.billing',
+    'apps.ai_engine',
 ]
 
 # Usuario activo
@@ -97,6 +107,15 @@ AUTH_PASSWORD_VALIDATORS = [
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 10,
+    'DEFAULT_FILTER_BACKENDS': (
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
     ),
 }
 
