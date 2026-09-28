@@ -86,10 +86,10 @@ MONGO_DB_NAME=pintaebook_nosql
 # Proveedor de Inteligencia Artificial (OpenRouter)
 OPENROUTER_API_KEY=sk-or-v1-tu-clave-aqui
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-AI_DEFAULT_MODEL=google/gemma-4-31b-it:free
+AI_DEFAULT_MODEL=dots-studio/dots-3-note-preview:free
 
-# Modo simulado para pruebas locales sin consumo de cuota
-AI_MOCK_MODE=True
+# Modo simulado para pruebas locales sin consumo de cuota. PERO NO HACE FALTA YA QUE USAMOS MODELO FREE. 
+AI_MOCK_MODE=FALSE
 ```
 
 ### 2. Construir e Iniciar Contenedores
