@@ -3,7 +3,7 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from .models import CreditBalance
 
-INITIAL_WELCOME_CREDITS = 100
+INITIAL_WELCOME_CREDITS = 1000
 
 
 # 1. El "@receiver" es la oreja. Dice: "Escuchá cuando el modelo de usuario (sender) se guarde (post_save)"
