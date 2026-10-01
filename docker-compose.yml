@@ -13,21 +13,41 @@ services:
       - postgres_data:/var/lib/postgresql/data  # Guarda los datos en disco para no perderlos si se apaga
     ports:
       - "5432:5432"
-
-  # --- CONTENEDOR 2: DJANGO BACKEND ---
-  web:
-    build: .                     # Le dice a Docker que lea el 'Dockerfile' creado en el paso 6
-    container_name: pintaebook_backend
-    restart: unless-stopped
-    command: python manage.py runserver 0.0.0.0:8000
-    volumes:
-      - .:/app                   # Mapea tu carpeta local con el contenedor: si editas código, cambia en vivo
+ 
+  # --- CONTENEDOR 2: REDIS 7 (Channel Layer para Django Channels) ---
+  redis:
+    image: redis:7-alpine
+    container_name: pintaebook_redis
+    restart: always
     ports:
-      - "8000:8000"              # Expone el puerto 8000 hacia tu Windows
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # --- CONTENEDOR 3: DJANGO BACKEND ---
+  web:
+    build: .
+    container_name: pintaebook_backend
+    restart: always
+    # Daphne: servidor ASGI que soporta HTTP/1.1, HTTP/2 y WebSockets
+    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
     env_file:
-      - .env
+      - .env              # Secretos y config dinámica (MONGO_URI, API keys, etc.)
+    environment:
+      # Solo variables de infraestructura fijas (no secretos, no van a .gitignore)
+      - DJANGO_SETTINGS_MODULE=config.settings.local
     depends_on:
-      - db                       # Espera a que PostgreSQL arranque antes de iniciar Django
+      db:
+        condition: service_started   # PostgreSQL no tiene healthcheck; arranca y listo
+      redis:
+        condition: service_healthy   # Espera a que redis-cli ping responda OK
 
 volumes:
   postgres_data:
