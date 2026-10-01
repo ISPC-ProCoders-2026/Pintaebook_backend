@@ -7,11 +7,31 @@ Implementa un modelo de persistencia híbrido:
 
 Además, orquesta la integración con el cliente de Inteligencia Artificial
 para la generación de contenido inicial y gestiona el cobro de créditos de usuario.
+
+Incorporación de WebSosket para mostrar el progreso del usuario mientras se genera el e-book. Lo hace en 5 pasos:
+1. Validando créditos y reservando metadatos.
+2. Estructurando tabla de contenidos con IA.
+3. Redactando capítulos en formato HTML.
+4. Sanitizando texto y persistiendo en MongoDB Atlas.
+5. ¡Obra finalizada con éxito! O hubo un error al generar la obra.
+
+- Se divide la función create_ebook en _emit_progress y _orchestrate_ai_generation para que la función create_ebook solo se encargue de crear el libro en PostgreSQL con status PROCESSING y delegar el resto del trabajo a un hilo en segundo plano.
+
+- Se agrega un método para generar los capítulos en formato HTML y se guarda la estructura en MongoDB Atlas.
+
+- Se agrega un método para auditar el consumo de IA.
+
+- Se agrega un método para eliminar un libro de la base de datos.
+
+
 """
 
 import json
 import logging
+import threading
 import uuid
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
 from django.db import transaction
 from django.utils import timezone
 from pymongo.errors import PyMongoError
@@ -49,30 +69,34 @@ def _contents():
     return get_mongo_db()[CONTENTS_COLLECTION]
 
 
+def _emit_progress(ebook_id: str, step: int, progress: int, message: str, **extra):
+    """
+    Despacha un evento tipado hacia el grupo Redis Channel Layer de la obra. Esto significa que 
+    va a enviar un mensaje al front-end para que el usuario pueda ver el progreso de la generación del e-book.
+    """
+    channel_layer = get_channel_layer()
+    if not channel_layer:
+        return
+
+    payload = {
+        "type": "progress_update",
+        "step": step,
+        "progress": progress,
+        "message": message,
+        **extra
+    }
+    async_to_sync(channel_layer.group_send)(
+        f"ebook_progress_{ebook_id}",
+        payload
+    )
+
+
 def _generate_initial_structure(title: str, prompt_idea: str, quantity: int) -> dict:
     """
     Genera la estructura inicial de capítulos y secciones en formato HTML usando IA.
-
-    Solicita al modelo de lenguaje un árbol de capítulos en formato JSON.
-    Si la llamada falla o el modelo devuelve una respuesta que no es JSON válido,
-    se aplica un mecanismo de contingencia (fallback) generando capítulos por defecto
-    para evitar interrumpir la creación de la obra.
-
-    Args:
-        title: Título de la obra.
-        prompt_idea: Descripción, temática o sinopsis orientada al modelo.
-        quantity: Número de capítulos a generar.
-
-    Returns:
-        dict: Estructura que contiene:
-            - 'chapters': Lista de capítulos y secciones con identificadores UUID únicos.
-            - 'tokens_used': Cantidad de tokens consumidos durante la generación.
-            - 'provider': Nombre del proveedor de IA utilizado.
-            - 'model': Nombre del modelo específico utilizado.
     """
     ai_client = AIClient()
 
-    # Consigna con restricciones estrictas de salida para facilitar el parseo JSON
     consigna = (
         f"Título de la obra: '{title}'.\n"
         f"Idea o temática: '{prompt_idea or title}'.\n"
@@ -90,14 +114,11 @@ def _generate_initial_structure(title: str, prompt_idea: str, quantity: int) -> 
         )
         raw_text = str(ai_result.get('html', '')).strip()
 
-        # Limpieza defensiva en caso de que el modelo devuelva bloques markdown ```json ... ```
         if raw_text.startswith('```'):
             raw_text = raw_text.split('\n', 1)[-1].rsplit('```', 1)[0].strip()
 
         parsed_chapters = json.loads(raw_text)
     except Exception as exc:
-        # Contingencia ante caídas de API o respuestas no parseables:
-        # Se crea un esqueleto inicial genérico para permitir que el usuario continúe.
         logger.warning("No se pudo parsear la respuesta del modelo, aplicando fallback: %s", exc)
         parsed_chapters = [
             {
@@ -117,8 +138,6 @@ def _generate_initial_structure(title: str, prompt_idea: str, quantity: int) -> 
             "model": "internal-fallback",
         }
 
-    # Normalización del árbol de contenidos asignando identificadores UUID
-    # a cada capítulo y sección para poder editarlos de forma granular más adelante.
     structured_chapters = []
     for chapter in parsed_chapters:
         ch_id = str(uuid.uuid4())
@@ -143,6 +162,72 @@ def _generate_initial_structure(title: str, prompt_idea: str, quantity: int) -> 
     }
 
 
+def _orchestrate_ai_generation(
+    ebook_id: str,
+    author,
+    title: str,
+    prompt_idea: str,
+    quantity_chapters: int
+):
+    """
+    Ejecuta el flujo secuencial de 5 pasos en segundo plano y emite eventos WebSocket. 
+    Esto es para evitar que el usuario tenga que esperar a que se genere el e-book para cerrar la página. 
+    
+    """
+    try:
+        # Paso 1 (20%): Validar y debitar créditos con select_for_update
+        _emit_progress(ebook_id, 1, 20, "Validando créditos y reservando metadatos...")
+        remaining_balance = BillingService.deduct_credits(author, INITIAL_EBOOK_CREDIT_COST)
+
+        # Paso 2 (45%): Estructuración con IA
+        _emit_progress(ebook_id, 2, 45, "Estructurando tabla de contenidos con IA...")
+
+        # Paso 3 (70%): Redacción de capítulos en HTML
+        _emit_progress(ebook_id, 3, 70, "Redactando capítulos en formato HTML...")
+        generation_data = _generate_initial_structure(title, prompt_idea, quantity_chapters)
+
+        # Paso 4 (90%): Sanitización y persistencia en MongoDB Atlas
+        _emit_progress(ebook_id, 4, 90, "Sanitizando texto y persistiendo en MongoDB Atlas...")
+        now = timezone.now()
+        _contents().insert_one({
+            '_id': ebook_id,
+            'ebook_id': ebook_id,
+            'chapters': generation_data['chapters'],
+            'version': 1,
+            'created_at': now,
+            'updated_at': now,
+        })
+
+        # Auditoría de IA
+        log_ia_interaction(
+            user_id=author.id,
+            ebook_id=ebook_id,
+            provider=generation_data['provider'],
+            model=generation_data['model'],
+            prompt=prompt_idea or title,
+            tokens_used=generation_data['tokens_used'],
+        )
+
+        # Paso 5 (100%): Actualización a COMPLETED
+        EbookMetadata.objects.filter(id=ebook_id).update(status='COMPLETED')
+        _emit_progress(
+            ebook_id, 5, 100,
+            "¡Obra finalizada con éxito!",
+            status="COMPLETED",
+            credits_available=remaining_balance
+        )
+
+    except Exception as exc:
+        logger.exception("Error en la orquestación asíncrona de la obra %s", ebook_id)
+        EbookMetadata.objects.filter(id=ebook_id).update(status='FAILED')
+        _emit_progress(
+            ebook_id, 0, 0,
+            f"Error al generar la obra: {str(exc)}",
+            status="FAILED",
+            error=str(exc)
+        )
+
+
 def create_ebook(
     *,
     author,
@@ -152,33 +237,10 @@ def create_ebook(
     quantity_chapters: int = 3,
 ) -> EbookMetadata:
     """
-    Crea un nuevo libro electrónico orquestando base de datos relacional, NoSQL y servicios de IA.
-
-    Flujo de ejecución:
-    1. Verificación de permisos y créditos disponibles del autor (los usuarios con rol ADMIN están exentos).
-    2. Generación asistida por IA de la estructura y contenido base de los capítulos.
-    3. Bloque transaccional atómico:
-       - Alta del registro de metadatos en PostgreSQL.
-       - Débito de los 100 créditos del saldo del autor.
-       - Persistencia del contenido estructurado en MongoDB. Si falla la inserción en Mongo,
-         se revierte la transacción en PostgreSQL evitando inconsistencias entre ambas bases.
-    4. Registro de auditoría del consumo de IA para telemetría y métricas de costos.
-
-    Args:
-        author: Instancia del usuario creador (CustomUser).
-        title: Título del libro.
-        description: Breve descripción o sinopsis general.
-        prompt_idea: Indicaciones o temática para guiar al modelo generativo.
-        quantity_chapters: Cantidad inicial de capítulos solicitados (por defecto 3).
-
-    Returns:
-        EbookMetadata: Instancia del modelo guardado en PostgreSQL con el saldo actualizado.
-
-    Raises:
-        InsufficientCreditsError: Si el usuario no es ADMIN y no posee saldo suficiente.
-        EbookStorageError: Si ocurre un problema de conexión o inserción en MongoDB.
+    Crea la reserva del libro en PostgreSQL con status PROCESSING y delega
+    la inferencia de IA y persistencia en Mongo a un hilo en segundo plano.
     """
-    # 1. Validación de créditos según rol
+    # 1. Validación de créditos previa
     is_admin = getattr(author, 'role', None) and getattr(author.role, 'nombre_rol', '') == 'ADMIN'
     current_balance = BillingService.get_balance(author)
 
@@ -187,47 +249,21 @@ def create_ebook(
             detail=f"Créditos insuficientes ({current_balance}/{INITIAL_EBOOK_CREDIT_COST}) para generar la obra con IA."
         )
 
-    # 2. Generación de capítulos con IA
-    generation_data = _generate_initial_structure(title, prompt_idea, quantity_chapters)
-
-    # 3. Persistencia híbrida sincronizada
-    try:
-        with transaction.atomic():
-            # Registro de metadatos en PostgreSQL
-            ebook = EbookMetadata.objects.create(
-                author=author,
-                title=title,
-                description=description,
-            )
-
-            # Débito de créditos en la billetera del autor
-            remaining_balance = BillingService.deduct_credits(author, INITIAL_EBOOK_CREDIT_COST)
-            ebook.credits_available = remaining_balance
-
-            # Inserción del documento con capítulos en MongoDB
-            # Si esta operación lanza PyMongoError, la transacción de PostgreSQL hace rollback automático
-            now = timezone.now()
-            _contents().insert_one({
-                '_id': str(ebook.id),
-                'ebook_id': str(ebook.id),
-                'chapters': generation_data['chapters'],
-                'version': 1,
-                'created_at': now,
-                'updated_at': now,
-            })
-    except PyMongoError as exc:
-        logger.exception('Falló la creación del documento en MongoDB')
-        raise EbookStorageError() from exc
-
-    # 4. Registro de auditoría del consumo del modelo generativo
-    log_ia_interaction(
-        user_id=author.id,
-        ebook_id=str(ebook.id),
-        provider=generation_data['provider'],
-        model=generation_data['model'],
-        prompt=prompt_idea or title,
-        tokens_used=generation_data['tokens_used'],
+    # 2. Creación inicial en PostgreSQL con status PROCESSING
+    ebook = EbookMetadata.objects.create(
+        author=author,
+        title=title,
+        description=description,
+        status='PROCESSING',
     )
+
+    # 3. Disparo del proceso en segundo plano
+    worker_thread = threading.Thread(
+        target=_orchestrate_ai_generation,
+        args=(str(ebook.id), author, title, prompt_idea, quantity_chapters),
+        daemon=True
+    )
+    worker_thread.start()
 
     return ebook
 
@@ -235,13 +271,6 @@ def create_ebook(
 def delete_ebook(ebook: EbookMetadata) -> None:
     """
     Elimina un libro tanto de la base de datos relacional (PostgreSQL) como de la documental (MongoDB).
-
-    Primero borra el registro relacional y luego remueve el documento asociado en Mongo.
-    Si Mongo falla, se captura el error y se registra en logs para identificar posibles
-    documentos huérfanos sin interrumpir el flujo.
-
-    Args:
-        ebook: Instancia de EbookMetadata que se desea eliminar.
     """
     ebook_id = str(ebook.id)
     ebook.delete()
