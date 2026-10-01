@@ -4,23 +4,16 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from .models import EbookMetadata
 
-""" Se encarga de suscribir el cliente Angular al grupo Redis ebook_progress_<ebook_id>. Valida que el usuario sea el dueño del libro o tenga rol ADMIN. Un consumer es como una view de http"""
-
-logger = logging.getLogger(__name__)
-
-import json
-import logging
-from channels.generic.websocket import AsyncWebsocketConsumer
-from channels.db import database_sync_to_async
-from .models import EbookMetadata
-
 logger = logging.getLogger(__name__)
 
 
 class EbookProgressConsumer(AsyncWebsocketConsumer):
+
     """
     Consumer WebSocket para transmitir eventos de progreso secuencial (Stepped Progress)
-    durante la inferencia y persistencia de un nuevo e-book.
+    durante la inferencia y armado de un nuevo e-book.
+
+   Se encarga de suscribir el cliente Angular al grupo Redis ebook_progress_<ebook_id>. Valida que el usuario sea el dueño del libro o tenga rol ADMIN. Un consumer es como una view de http
     """
 
     async def connect(self):
@@ -30,14 +23,14 @@ class EbookProgressConsumer(AsyncWebsocketConsumer):
 
         # 1. Validar autenticación
         if not self.user or self.user.is_anonymous:
-            logger.warning(f"WS Conexión rechazada: Usuario no autenticado para ebook {self.ebook_id}")
+            logger.warning(f"WS Rechazado: Conexión no autenticada para ebook {self.ebook_id}")
             await self.close(code=4001)
             return
 
-        # 2. Validar pertenencia del e-book (Autor o Admin)
-        is_authorized = await self._is_authorized()
-        if not is_authorized:
-            logger.warning(f"WS Conexión rechazada: Usuario {self.user.id} sin permisos para ebook {self.ebook_id}")
+        # 2. Validar propiedad de la obra (o rol ADMIN)
+        is_owner = await self._is_authorized()
+        if not is_owner:
+            logger.warning(f"WS Rechazado: Usuario {self.user.id} sin permisos para ebook {self.ebook_id}")
             await self.close(code=4003)
             return
 
@@ -57,7 +50,7 @@ class EbookProgressConsumer(AsyncWebsocketConsumer):
 
     async def progress_update(self, event):
         """
-        Handler que recibe los eventos enviados desde el EbookService a Redis Channel Layer.
+        Handler invocado por channel_layer.group_send cuando se emite un evento progress_update.
         """
         payload = {
             "type": "progress_update",
@@ -80,6 +73,6 @@ class EbookProgressConsumer(AsyncWebsocketConsumer):
             ebook = EbookMetadata.objects.get(id=self.ebook_id)
             if hasattr(self.user, 'role') and self.user.role and self.user.role.nombre_rol == 'ADMIN':
                 return True
-            return ebook.usuario_id == self.user.id
+            return ebook.author_id == self.user.id
         except EbookMetadata.DoesNotExist:
             return False
