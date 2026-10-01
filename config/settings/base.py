@@ -98,6 +98,10 @@ if REDIS_URL:
             'BACKEND': 'channels_redis.core.RedisChannelLayer',
             'CONFIG': {
                 'hosts': [REDIS_URL],
+                # Mantener el canal activo 5 minutos (la IA puede tardar 1-2 min)
+                'expiry': 300,
+                # Capacidad del buffer de mensajes por grupo
+                'capacity': 100,
             },
         },
     }
@@ -109,6 +113,10 @@ else:
             'BACKEND': 'channels_redis.core.RedisChannelLayer',
             'CONFIG': {
                 'hosts': [(REDIS_HOST, REDIS_PORT)],
+                # Mantener el canal activo 5 minutos (la IA puede tardar 1-2 min)
+                'expiry': 300,
+                # Capacidad del buffer de mensajes por grupo
+                'capacity': 100,
             },
         },
     }

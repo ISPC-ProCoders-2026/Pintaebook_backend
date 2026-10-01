@@ -71,11 +71,13 @@ def _contents():
 
 def _emit_progress(ebook_id: str, step: int, progress: int, message: str, **extra):
     """
-    Despacha un evento tipado hacia el grupo Redis Channel Layer de la obra. Esto significa que 
-    va a enviar un mensaje al front-end para que el usuario pueda ver el progreso de la generación del e-book.
+    Despacha un evento tipado hacia el grupo Redis Channel Layer de la obra.
+    El try/except es defensivo: si Redis tiene un timeout transitorio en un paso
+    intermedio, el worker sigue adelante en lugar de morir con 1011.
     """
     channel_layer = get_channel_layer()
     if not channel_layer:
+        logger.warning("No hay channel layer configurado; se omite el emit del paso %s", step)
         return
 
     payload = {
@@ -85,10 +87,17 @@ def _emit_progress(ebook_id: str, step: int, progress: int, message: str, **extr
         "message": message,
         **extra
     }
-    async_to_sync(channel_layer.group_send)(
-        f"ebook_progress_{ebook_id}",
-        payload
-    )
+    try:
+        async_to_sync(channel_layer.group_send)(
+            f"ebook_progress_{ebook_id}",
+            payload
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Un timeout de Redis en un emit intermedio no debe matar el worker
+        logger.warning(
+            "No se pudo emitir el progreso (paso %s, %s%%) para el ebook %s: %s",
+            step, progress, ebook_id, exc
+        )
 
 
 def _generate_initial_structure(title: str, prompt_idea: str, quantity: int) -> dict:

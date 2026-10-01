@@ -1,4 +1,4 @@
-version: '3.8'
+
 
 services:
   db:
@@ -50,7 +50,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - MONGODB_URI=${MONGODB_URI}
+      - MONGO_URI=${MONGO_URI}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-pintaebook}
     depends_on:
       db:
