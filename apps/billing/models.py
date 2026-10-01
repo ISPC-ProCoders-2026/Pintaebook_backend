@@ -17,4 +17,4 @@ class CreditBalance(models.Model):
         db_table = 'balances_credito'
 
     def __str__(self):
-        return f"{self.usuario.email} - {self.credits_available} créditos"
+        return f"{self.usuario.email} - {self.credits_available} créditos"  
