@@ -97,10 +97,16 @@ if REDIS_URL:
         'default': {
             'BACKEND': 'channels_redis.core.RedisChannelLayer',
             'CONFIG': {
-                'hosts': [REDIS_URL],
-                # Mantener el canal activo 5 minutos (la IA puede tardar 1-2 min)
+                # Dict format permite pasar opciones de socket al pool de redis-py
+                'hosts': [{
+                    'address': REDIS_URL,
+                    # Sin timeout en el socket: el consumer espera indefinidamente
+                    'socket_timeout': None,
+                    # Keepalive TCP para que el OS no cierre la conexion idle
+                    'socket_keepalive': True,
+                    'socket_connect_timeout': 10,
+                }],
                 'expiry': 300,
-                # Capacidad del buffer de mensajes por grupo
                 'capacity': 100,
             },
         },
@@ -112,10 +118,16 @@ else:
         'default': {
             'BACKEND': 'channels_redis.core.RedisChannelLayer',
             'CONFIG': {
-                'hosts': [(REDIS_HOST, REDIS_PORT)],
-                # Mantener el canal activo 5 minutos (la IA puede tardar 1-2 min)
+                # Dict format permite pasar opciones de socket al pool de redis-py
+                'hosts': [{
+                    'address': (REDIS_HOST, REDIS_PORT),
+                    # Sin timeout en el socket: el consumer espera indefinidamente
+                    'socket_timeout': None,
+                    # Keepalive TCP para que el OS no cierre la conexion idle
+                    'socket_keepalive': True,
+                    'socket_connect_timeout': 10,
+                }],
                 'expiry': 300,
-                # Capacidad del buffer de mensajes por grupo
                 'capacity': 100,
             },
         },

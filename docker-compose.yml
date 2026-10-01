@@ -23,6 +23,9 @@ services:
     image: redis:7-alpine
     container_name: pintaebook_redis
     restart: always
+    # --timeout 0: no cierra conexiones idle (critico para WebSocket consumers)
+    # --tcp-keepalive 60: mantiene vivas las conexiones TCP entre contenedores
+    command: redis-server --timeout 0 --tcp-keepalive 60
     ports:
       - "6379:6379"
     healthcheck:
