@@ -21,13 +21,16 @@ DEBUG = env('DEBUG')
 
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=[])
 
-#Google Auth Settings
-GOOGLE_CLIENT_ID = env('GOOGLE_CLIENT_ID')
+# Google Auth Settings
+GOOGLE_CLIENT_ID = env('GOOGLE_CLIENT_ID', default='')
 
 
 # Application definition
 
 INSTALLED_APPS = [
+    # Daphne debe preceder a staticfiles para gestionar ASGI y WebSockets
+    'daphne',
+
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -36,8 +39,10 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     
     # Third party apps
-    'corsheaders',  # <- CORS
+    'corsheaders',
     'rest_framework',
+    'channels',
+    'rest_framework_simplejwt',
 
     # Our apps
     'apps.accounts',
@@ -45,13 +50,15 @@ INSTALLED_APPS = [
     'apps.content',
     'apps.billing',
     'apps.ai_engine',
+    'apps.exporter',
+    'apps.notifications',
 ]
 
 # Usuario activo
 AUTH_USER_MODEL = 'accounts.User'
 
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',  # <- CORS middleware al inicio
+    'corsheaders.middleware.CorsMiddleware',  # CORS middleware al inicio
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -81,10 +88,35 @@ TEMPLATES = [
 WSGI_APPLICATION = 'config.wsgi.application'
 ASGI_APPLICATION = 'config.asgi.application'
 
+# Channel Layers (Redis para tiempo real / WebSockets)
+# Compatible con Railway (REDIS_URL) y Docker Compose local (REDIS_HOST / REDIS_PORT)
+REDIS_URL = env('REDIS_URL', default=None)
+
+if REDIS_URL:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {
+                'hosts': [REDIS_URL],
+            },
+        },
+    }
+else:
+    REDIS_HOST = env('REDIS_HOST', default='127.0.0.1')
+    REDIS_PORT = env.int('REDIS_PORT', default=6379)
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {
+                'hosts': [(REDIS_HOST, REDIS_PORT)],
+            },
+        },
+    }
+
 # Database
-# https://docs.djangoproject.com/en/6.0/ref/settings/#databases, postgre
+# https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 DATABASES = {
-    'default': env.db_url('DATABASE_URL', default=f"postgres://{env('DB_USER')}:{env('DB_PASSWORD')}@{env('DB_HOST')}:{env('DB_PORT')}/{env('DB_NAME')}")
+    'default': env.db_url('DATABASE_URL', default=f"postgres://{env('DB_USER', default='postgres')}:{env('DB_PASSWORD', default='postgres')}@{env('DB_HOST', default='localhost')}:{env('DB_PORT', default='5432')}/{env('DB_NAME', default='pintaebook_db')}")
 }
 
 # Password validation

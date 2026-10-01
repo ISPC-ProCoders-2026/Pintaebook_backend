@@ -1,20 +1,24 @@
-# Docker compose configuration for PintaEbook Backend testing
+version: '3.8'
+
 services:
-  # --- CONTENEDOR 1: BASE DE DATOS ---
   db:
-    image: postgres:16-alpine    # Descarga la imagen oficial de PostgreSQL 16
-    container_name: pintaebook_postgres
-    restart: unless-stopped
+    image: postgres:16-alpine
+    container_name: pintaebook_db
+    restart: always
     environment:
-      POSTGRES_DB: pintaebook_db
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    volumes:
-      - postgres_data:/var/lib/postgresql/data  # Guarda los datos en disco para no perderlos si se apaga
+      POSTGRES_DB: ${POSTGRES_DB:-pintaebook_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
       - "5432:5432"
- 
-  # --- CONTENEDOR 2: REDIS 7 (Channel Layer para Django Channels) ---
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-pintaebook_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   redis:
     image: redis:7-alpine
     container_name: pintaebook_redis
@@ -27,27 +31,32 @@ services:
       timeout: 3s
       retries: 5
 
-  # --- CONTENEDOR 3: DJANGO BACKEND ---
   web:
     build: .
-    container_name: pintaebook_backend
+    container_name: pintaebook_web
     restart: always
-    # Daphne: servidor ASGI que soporta HTTP/1.1, HTTP/2 y WebSockets
     command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
     volumes:
       - .:/app
     ports:
       - "8000:8000"
-    env_file:
-      - .env              # Secretos y config dinámica (MONGO_URI, API keys, etc.)
     environment:
-      # Solo variables de infraestructura fijas (no secretos, no van a .gitignore)
       - DJANGO_SETTINGS_MODULE=config.settings.local
+      - POSTGRES_DB=${POSTGRES_DB:-pintaebook_db}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MONGODB_URI=${MONGODB_URI}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-pintaebook}
     depends_on:
       db:
-        condition: service_started   # PostgreSQL no tiene healthcheck; arranca y listo
+        condition: service_healthy
       redis:
-        condition: service_healthy   # Espera a que redis-cli ping responda OK
+        condition: service_healthy
 
 volumes:
   postgres_data:
