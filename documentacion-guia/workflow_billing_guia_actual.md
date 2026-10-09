@@ -5,36 +5,30 @@
 > **Estado:**
 > - Modelo de datos de paquetes y pagos (`CreditPackage`, `PaymentTransaction`): implementado y migrado.
 > - `GET /api/billing/balance/` (saldo): existente.
-> - `POST /api/billing/checkout/` (iniciar el pago de un paquete): implementado, probado con tests y con el modo mock. **Todavía no probado contra Mercado Pago real** (faltan credenciales de prueba). Ver sección [7](#7-endpoints).
+> - `POST /api/billing/checkout/` (iniciar el pago de un paquete, tk084): implementado, probado con 23 tests automáticos y con el modo mock. **Todavía no probado contra Mercado Pago real** (faltan credenciales de prueba). Ver sección [7](#7-endpoints).
+> - Las variables de entorno de Mercado Pago están documentadas en `.env.example` y en la sección [11](#11-configuración-variables-de-entorno).
 > - **Todavía no existe el webhook de Mercado Pago**: pagar no acredita créditos ni cambia el estado de la transacción.
 
 ## Índice
 
-- [Guía de Billing: créditos, paquetes y transacciones de pago](#guía-de-billing-créditos-paquetes-y-transacciones-de-pago)
-    - [Pinta Ebook — Documentación Técnica (módulo `billing` — Estado Actual)](#pinta-ebook--documentación-técnica-módulo-billing--estado-actual)
-  - [Índice](#índice)
-  - [1. Qué incluye esta guía](#1-qué-incluye-esta-guía)
-    - [Qué NO incluye](#qué-no-incluye)
-  - [2. Relaciones](#2-relaciones)
-  - [3. Tablas](#3-tablas)
-    - [3.1 `paquetes_credito` (`CreditPackage`)](#31-paquetes_credito-creditpackage)
-    - [3.2 `transacciones_pagos` (`PaymentTransaction`)](#32-transacciones_pagos-paymenttransaction)
-    - [3.3 `balances_credito` (`CreditBalance`) — ya existente](#33-balances_credito-creditbalance--ya-existente)
-  - [4. Estados de una transacción](#4-estados-de-una-transacción)
-  - [5. Reglas de integridad](#5-reglas-de-integridad)
-    - [Qué pasa al borrar](#qué-pasa-al-borrar)
-  - [6. Cómo usarlo desde código (backend)](#6-cómo-usarlo-desde-código-backend)
-  - [7. Endpoints](#7-endpoints)
-    - [Estado actual](#estado-actual)
-    - [`GET /api/billing/balance/`](#get-apibillingbalance)
-    - [`POST /api/billing/checkout/`](#post-apibillingcheckout)
-    - [Plantilla para documentar endpoints nuevos](#plantilla-para-documentar-endpoints-nuevos)
-  - [8. Cómo verificar](#8-cómo-verificar)
-  - [9. Decisiones de diseño](#9-decisiones-de-diseño)
-  - [10. Puntos abiertos](#10-puntos-abiertos)
-  - [11. Configuración (variables de entorno)](#11-configuración-variables-de-entorno)
+1. [Qué incluye esta guía](#1-qué-incluye-esta-guía)
+2. [Relaciones](#2-relaciones)
+3. [Tablas](#3-tablas)
+4. [Estados de una transacción](#4-estados-de-una-transacción)
+5. [Reglas de integridad](#5-reglas-de-integridad)
+6. [Cómo usarlo desde código (backend)](#6-cómo-usarlo-desde-código-backend)
+7. [Endpoints](#7-endpoints)
+8. [Cómo verificar](#8-cómo-verificar)
+9. [Decisiones de diseño](#9-decisiones-de-diseño)
+10. [Puntos abiertos](#10-puntos-abiertos)
+11. [Configuración (variables de entorno)](#11-configuración-variables-de-entorno)
 
 ## 1. Qué incluye esta guía
+
+Esta guía cubre dos entregas del módulo `billing`:
+
+- **tk083:** modelos `CreditPackage` y `PaymentTransaction` (secciones 2 a 5).
+- **tk084:** integración con Mercado Pago y endpoint de checkout (secciones 6, 7 y 11).
 
 Se agregaron a `apps/billing/models.py` las dos entidades de pagos definidas en el Diagrama Relacional PostgreSQL (bloque *FINANZAS*):
 
@@ -46,10 +40,19 @@ Se agregaron a `apps/billing/models.py` las dos entidades de pagos definidas en 
 
 Archivos involucrados:
 
-- `apps/billing/models.py`
-- `apps/billing/migrations/0002_creditpackage_paymenttransaction.py`
+| Archivo | Entrega | Qué hace |
+|---|---|---|
+| `apps/billing/models.py` | tk083 | Modelos `CreditPackage`, `PaymentTransaction` y `EstadoTransaccion` |
+| `apps/billing/migrations/0002_creditpackage_paymenttransaction.py` | tk083 | Crea las tablas y constraints |
+| `infrastructure/mercadopago_client.py` | tk084 | Adaptador de Mercado Pago: crea la preferencia de pago y traduce los errores. Es el **único** archivo que conoce Mercado Pago |
+| `apps/billing/services.py` | tk084 | `BillingService.create_checkout` (lógica del checkout) y errores de negocio |
+| `apps/billing/serializers.py` | tk084 | `CheckoutRequestSerializer`: valida el body |
+| `apps/billing/views.py` | tk084 | `BillingCheckoutView`: recibe el request y responde `201` |
+| `apps/billing/urls.py` | tk084 | Ruta `billing/checkout/` |
+| `apps/billing/test_checkout.py` | tk084 | 23 tests del checkout y del cliente de Mercado Pago |
+| `.env.example` | tk084 | Documenta las variables `MERCADOPAGO_*` (sin valores reales) |
 
-El módulo `billing` ya contenía, antes de esta entrega, el modelo `CreditBalance` (saldo de créditos del usuario) y el endpoint que lo expone. **No se modificaron.**
+El módulo `billing` ya contenía, antes de estas entregas, el modelo `CreditBalance` (saldo de créditos del usuario), `get_balance`, `deduct_credits` y el endpoint de saldo. **No se modificaron.**
 
 ### Qué NO incluye
 
@@ -170,6 +173,25 @@ PaymentTransaction.objects.create(
 - Usar siempre `EstadoTransaccion.<ESTADO>` en lugar de strings sueltos.
 - No se envía `fecha`: la completa la base.
 - Desde un usuario se accede a sus pagos con `usuario.payment_transactions`, y desde un paquete con `paquete.payment_transactions`.
+
+### Iniciar un checkout desde el backend
+
+No hace falta crear la transacción a mano: el servicio hace todo el flujo (leer el paquete, crear la preferencia en Mercado Pago y registrar la transacción `pendiente`).
+
+```python
+from apps.billing.services import BillingService
+
+resultado = BillingService.create_checkout(user=request.user, paquete_id=4)
+# {'init_point': 'https://...'}
+```
+
+Orden de lo que hace `create_checkout`:
+
+1. Busca el paquete. Si no existe lanza `CreditPackageNotFoundError` (404). Si su precio es 0 lanza `CreditPackageNotPurchasableError` (400).
+2. Llama a Mercado Pago (`create_preference`) con el nombre y el precio **del paquete en la base**. Si falla lanza `PaymentGatewayUnavailableError` (503) o `PaymentGatewayError` (502).
+3. Recién entonces inserta la `PaymentTransaction` en `pendiente`, con el ID de la preferencia en `id_transaccion_externa`.
+
+`create_checkout` acepta un parámetro opcional `gateway=` para inyectar otro cliente de pagos (útil en tests). Si no se pasa, usa `MercadoPagoClient()`.
 
 ## 7. Endpoints
 
@@ -335,7 +357,19 @@ Para probar que la base rechaza datos inválidos, abrir `python manage.py shell`
 
 Para probar el endpoint de saldo hace falta un usuario registrado y su token de acceso (ver los pasos de autenticación en la guía de e-books).
 
-Para probar el checkout en local sin Mercado Pago, activar el modo mock (sección 11), cargar un paquete (`CreditPackage`) y llamar a `POST /api/billing/checkout/` con el token. La respuesta debe ser `201` y debe aparecer una fila `pendiente` en `transacciones_pagos` con el monto del paquete y un `id_transaccion_externa` que empieza con `MOCK-`. Los tests automáticos se ejecutan con `python manage.py test apps.billing`.
+Para probar el checkout en local sin Mercado Pago, activar el modo mock (sección 11), cargar un paquete (`CreditPackage`) y llamar a `POST /api/billing/checkout/` con el token. La respuesta debe ser `201` y debe aparecer una fila `pendiente` en `transacciones_pagos` con el monto del paquete y un `id_transaccion_externa` que empieza con `MOCK-`. 
+
+**Tests automáticos:**
+
+```bash
+docker exec pintaebook_web python manage.py test apps.billing
+```
+
+Resultado esperado hoy: **28 tests**. Los 23 de `test_checkout.py` (10 del endpoint y 13 del cliente de Mercado Pago) pasan. **Fallan 4 tests preexistentes** de `BillingTests` (`tests.py`): esperan 100 créditos de bienvenida y la signal da 1000. No se tocaron en tk084; ver sección 10.
+
+Para correr solo los del checkout: `python manage.py test apps.billing.test_checkout`.
+
+**Sobre el modo mock:** las variables se leen del `.env` con `django-environ`, no de `docker-compose.yml`. Si se cambia el `.env` hay que recrear el contenedor (ver sección 11).
 
 ## 9. Decisiones de diseño
 
@@ -343,6 +377,18 @@ Para probar el checkout en local sin Mercado Pago, activar el modo mock (secció
 - **`id` declarado como `AutoField`:** respeta el `SERIAL` de 32 bits del diagrama sin depender de `DEFAULT_AUTO_FIELD`.
 - **`IntegerField` en `cantidad_creditos`:** `PositiveIntegerField` agrega su propio `CHECK >= 0` y duplicaría la regla `> 0` del diagrama.
 - **`db_default` en `fecha`:** el `DEFAULT` lo define PostgreSQL, como pide el diagrama, y aplica también a inserciones que no pasan por el ORM.
+
+Decisiones del checkout (tk084):
+
+- **Tres capas (vista → servicio → adaptador):** la vista solo valida y responde; el servicio decide; `infrastructure/mercadopago_client.py` es el único que conoce Mercado Pago. Cambiar de pasarela toca un solo archivo.
+- **Se llama a Mercado Pago antes de insertar en la base, y fuera de una transacción de base de datos:** si la pasarela falla, no queda ninguna fila `pendiente` huérfana, y no se mantiene una transacción abierta durante una llamada de red de hasta 10 segundos. La contracara: si la pasarela responde bien y el insert falla, queda una preferencia sin fila (se registra en el log y se relanza el error).
+- **El monto sale siempre del paquete en la base, nunca del request:** el cliente no puede elegir cuánto pagar.
+- **`requests` en lugar del SDK de Mercado Pago:** se usa un solo endpoint, y así el timeout y el mapeo de errores quedan bajo nuestro control y fáciles de testear.
+- **Errores tipados:** timeout, error de conexión, 5xx y 429 de Mercado Pago → `503` (reintentable). Otros 4xx, JSON inválido o respuesta sin `init_point` → `502` (la pasarela respondió, pero algo no sirve). Sin credenciales configuradas → `503`.
+- **Un solo `init_point` en la respuesta:** según `MERCADOPAGO_SANDBOX`, el backend elige `sandbox_init_point` o `init_point`; el frontend no distingue.
+- **Modo mock apagado por defecto:** evita que se active solo en producción.
+- **Moneda fija `ARS`:** decisión del equipo por ahora.
+- **`create_checkout` recibe `gateway=` opcional:** permite probar el servicio con un doble de prueba sin tocar la red.
 
 ## 10. Puntos abiertos
 
