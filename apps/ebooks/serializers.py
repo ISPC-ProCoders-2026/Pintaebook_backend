@@ -4,7 +4,7 @@ from . import services
 
 
 class EbookSerializer(serializers.ModelSerializer):
-    """Permite recibir prompt_idea y quantity_chapters (que solo intervienen durante la creación) y exponer credits_available en la respuesta"""
+    """Permite recibir prompt_idea y quantity_chapters y expone status en la respuesta"""
     
     ebook_id = serializers.UUIDField(source='id', read_only=True)
     prompt_idea = serializers.CharField(
@@ -21,13 +21,14 @@ class EbookSerializer(serializers.ModelSerializer):
             'ebook_id',
             'title',
             'description',
+            'status',
             'prompt_idea',
             'quantity_chapters',
             'credits_available',
             'created_at',
             'updated_at',
         )
-        read_only_fields = ('ebook_id', 'credits_available', 'created_at', 'updated_at')
+        read_only_fields = ('ebook_id', 'status', 'credits_available', 'created_at', 'updated_at')
 
     def create(self, validated_data):
         return services.create_ebook(**validated_data)

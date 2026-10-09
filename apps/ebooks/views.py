@@ -1,4 +1,5 @@
-from rest_framework import filters, viewsets
+from rest_framework import filters, viewsets, status
+from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
 from . import services
@@ -19,8 +20,12 @@ class EbookViewSet(viewsets.ModelViewSet):
     ordering = ['-created_at']
 
     def get_queryset(self):
-        # Solo libros del autor autenticado
-        queryset = EbookMetadata.objects.filter(author=self.request.user)
+        # Admite lectura completa para ADMIN o solo libros del autor autenticado
+        user = self.request.user
+        if hasattr(user, 'role') and user.role and user.role.nombre_rol == 'ADMIN':
+            queryset = EbookMetadata.objects.all()
+        else:
+            queryset = EbookMetadata.objects.filter(author=user)
         
         # Filtros adicionales por query params (ej. /api/ebooks/?created_after=2026-01-01)
         created_after = self.request.query_params.get('created_after')
