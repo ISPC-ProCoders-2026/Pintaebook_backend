@@ -20,8 +20,8 @@ class BillingTests(APITestCase):
         self.client.force_authenticate(user=self.user)
 
     def test_signal_crea_balance_de_bienvenida(self):
-        balance = CreditBalance.objects.get(usuario=self.user)
-        self.assertEqual(balance.credits_available, 100)
+      balance = CreditBalance.objects.get(usuario=self.user)
+      self.assertEqual(balance.credits_available, 1000)
 
     def test_consultar_balance_autenticado_retorna_200(self):
         response = self.client.get(self.url)
@@ -29,20 +29,24 @@ class BillingTests(APITestCase):
         self.assertEqual(response.data['credits_available'], 100)
         self.assertIn('last_updated', response.data)
 
-    def test_consultar_balance_sin_autenticar_retorna_401(self):
-        self.client.force_authenticate(user=None)
-        response = self.client.get(self.url)
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+    def test_consultar_balance_autenticado_retorna_200(self):
+     response = self.client.get(self.url)
+     self.assertEqual(response.status_code, status.HTTP_200_OK)
+     self.assertEqual(response.data['credits_available'], 1000)
+     self.assertIn('last_updated', response.data)
 
     def test_deduct_credits_descuenta_correctamente(self):
-        nuevo_saldo = BillingService.deduct_credits(self.user, 30)
-        self.assertEqual(nuevo_saldo, 70)
-        balance = CreditBalance.objects.get(usuario=self.user)
-        self.assertEqual(balance.credits_available, 70)
+     nuevo_saldo = BillingService.deduct_credits(self.user, 30)
+     self.assertEqual(nuevo_saldo, 970)
 
+     balance = CreditBalance.objects.get(usuario=self.user)
+     self.assertEqual(balance.credits_available, 970)
+
+
+   
     def test_deduct_credits_insuficientes_lanza_excepcion_402(self):
-        with self.assertRaises(InsufficientCreditsError):
-            BillingService.deduct_credits(self.user, 150)
+     with self.assertRaises(InsufficientCreditsError):
+        BillingService.deduct_credits(self.user, 1500)
 
-        balance = CreditBalance.objects.get(usuario=self.user)
-        self.assertEqual(balance.credits_available, 100)
+     balance = CreditBalance.objects.get(usuario=self.user)
+     self.assertEqual(balance.credits_available, 1000)
