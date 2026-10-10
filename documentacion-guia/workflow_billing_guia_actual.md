@@ -5,7 +5,7 @@
 > **Estado:**
 > - Modelo de datos de paquetes y pagos (`CreditPackage`, `PaymentTransaction`): implementado y migrado.
 > - `GET /api/billing/balance/` (saldo): existente.
-> - `POST /api/billing/checkout/` (iniciar el pago de un paquete, tk084): implementado, probado con 23 tests automáticos y con el modo mock. **Todavía no probado contra Mercado Pago real** (faltan credenciales de prueba). Ver sección [7](#7-endpoints).
+> - `POST /api/billing/checkout/` (iniciar el pago de un paquete, tk084): implementado, probado con 23 tests automáticos, con el modo mock y **contra el sandbox real de Mercado Pago** (credenciales de prueba): crea la preferencia, devuelve el `init_point` y registra la transacción `pendiente`. **No se completó un pago de punta a punta** (ver sección [10](#10-puntos-abiertos)). Ver sección [7](#7-endpoints).
 > - Las variables de entorno de Mercado Pago están documentadas en `.env.example` y en la sección [11](#11-configuración-variables-de-entorno).
 > - **Todavía no existe el webhook de Mercado Pago**: pagar no acredita créditos ni cambia el estado de la transacción.
 
@@ -274,6 +274,8 @@ Inicia el pago de un paquete de créditos: crea la preferencia de pago en Mercad
 |---|---|---|
 | `init_point` | string (URL) | Página de pago de Mercado Pago a la que hay que redirigir al usuario. En modo sandbox el backend ya devuelve la URL de sandbox: el frontend no tiene que distinguir |
 
+**Verificado con el sandbox real de Mercado Pago:** con credenciales de prueba y `MERCADOPAGO_SANDBOX=True`, el endpoint respondió `201` con una URL del tipo `https://sandbox.mercadopago.com.ar/checkout/v1/redirect?pref_id=<id_de_preferencia>`. La página de pago abrió y mostró el nombre y el monto del paquete (por ejemplo "Pack prueba", $ 9,99), iguales a los guardados en la base. La fila de `transacciones_pagos` quedó `pendiente` con ese mismo `pref_id` en `id_transaccion_externa`.
+
 **Errores:**
 
 | Código | Cuándo | Cuerpo de ejemplo | Verificado |
@@ -296,7 +298,7 @@ Inicia el pago de un paquete de créditos: crea la preferencia de pago en Mercad
 - **El backend espera hasta 10 segundos** a Mercado Pago antes de responder `503`.
 - **Pagar todavía no acredita créditos.** Como el webhook no existe, después del pago el saldo (`GET /api/billing/balance/`) no cambia y la transacción sigue `pendiente`. No mostrar al usuario "créditos acreditados" a partir de este endpoint.
 - **El usuario no vuelve solo a la aplicación.** Todavía no están configuradas las URLs de retorno (`back_urls`), así que al terminar de pagar se queda en Mercado Pago. Falta que el equipo de frontend defina esas URLs.
-- **Entornos de desarrollo:** con el modo mock activo, `init_point` apunta a una página de ejemplo (`example.com`) y no a Mercado Pago.
+- **Entornos de desarrollo:** con el modo mock activo, `init_point` apunta a una página de ejemplo (`example.com`) y no a Mercado Pago. Con credenciales de prueba y sandbox, apunta a `sandbox.mercadopago.com.ar`, y los pagos son ficticios (hay que pagar con la cuenta compradora de prueba, nunca con una cuenta real).
 
 **Ejemplo orientativo en Angular** (asume que el interceptor de autenticación ya agrega el header, como en el Paso A de la guía de e-books, y que la URL base de la API se define según el proyecto):
 
@@ -359,6 +361,15 @@ Para probar el endpoint de saldo hace falta un usuario registrado y su token de 
 
 Para probar el checkout en local sin Mercado Pago, activar el modo mock (sección 11), cargar un paquete (`CreditPackage`) y llamar a `POST /api/billing/checkout/` con el token. La respuesta debe ser `201` y debe aparecer una fila `pendiente` en `transacciones_pagos` con el monto del paquete y un `id_transaccion_externa` que empieza con `MOCK-`. 
 
+**Prueba contra el sandbox de Mercado Pago:**
+
+1. En Mercado Pago Developers, crear una aplicación (Checkout Pro) y usar su **Access Token de prueba** y un usuario **comprador de prueba** (sección "Cuentas de prueba"). No usar credenciales de producción ni cuentas personales.
+2. En el `.env` local (nunca en `.env.example`): `MERCADOPAGO_ACCESS_TOKEN=<token de prueba>`, `MERCADOPAGO_SANDBOX=True`, `MERCADOPAGO_MOCK_MODE=False`. Recrear el contenedor: `docker compose up -d --force-recreate web`.
+3. Crear un usuario local de prueba (por ejemplo con `create_user` en `manage.py shell`), loguearse en `POST /api/auth/login/` y llamar a `POST /api/billing/checkout/` con el `access` y un `paquete_id` existente.
+4. Esperar `201` con un `init_point` de `sandbox.mercadopago.com.ar`. Abrirlo en una ventana de incógnito y entrar con el comprador de prueba.
+5. Verificar en la base que la última `PaymentTransaction` esté `pendiente`, con el `monto` del paquete y un `id_transaccion_externa` que no empiece con `MOCK-`.
+6. Si responde `502` o `503`, ver el motivo en `docker logs pintaebook_web --tail 50`: el cliente registra la respuesta de Mercado Pago, truncada a 500 caracteres.
+
 **Tests automáticos:**
 
 ```bash
@@ -400,7 +411,7 @@ Decisiones del checkout (tk084):
 
 Puntos abiertos del checkout:
 
-- **No probado contra Mercado Pago real.** Solo se probó con el modo mock y con tests automáticos; faltan credenciales de prueba.
+- **Pago de punta a punta sin probar.** La creación de la preferencia y el `init_point` se verificaron contra el sandbox real, pero al pagar en la página de sandbox el botón "Pagar" no se habilitó con ninguna tarjeta de prueba, así que no se vio un pago aprobado. Queda para el ticket del webhook. Tampoco se probaron a mano los `502` y `503` reales (solo con tests automáticos).
 - **No hay endpoint para listar paquetes** ni una carga inicial de datos: la tabla `paquetes_credito` empieza vacía.
 - **`external_reference`** guarda `<uuid_usuario>:<paquete_id>`, que no distingue dos compras iguales del mismo usuario. El webhook debería identificar la transacción por el ID de preferencia.
 - **`id_transaccion_externa`** guarda hoy el ID de la **preferencia**, no el del pago final. El ticket del webhook tiene que decidir si lo actualiza o busca por preferencia.
@@ -425,6 +436,7 @@ El cliente de Mercado Pago (`infrastructure/mercadopago_client.py`) lee estas va
 
 Notas:
 
+- El `MERCADOPAGO_ACCESS_TOKEN` va **solo en el `.env` local**. En `.env.example` van las variables vacías o con valores de ejemplo, porque ese archivo sí se sube al repositorio. Quien no tenga credenciales de prueba puede trabajar con `MERCADOPAGO_MOCK_MODE=True`.
 - El modo mock está **apagado por defecto** para que nunca se active solo en producción.
 - La moneda de los pagos es siempre pesos argentinos (`ARS`).
 - Cambiar el `.env` no afecta a un contenedor que ya está corriendo: hay que recrearlo (`docker compose up -d --force-recreate web`).

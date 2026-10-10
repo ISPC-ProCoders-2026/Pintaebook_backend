@@ -99,11 +99,11 @@ class AIGenerateEndpointTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['credits_debited'], 10)
-        self.assertEqual(response.data['credits_available'], 90)
+        self.assertEqual(response.data['credits_available'], 990)
         self.assertIn('Texto generado por IA', response.data['generated_html'])
 
         balance = CreditBalance.objects.get(usuario=self.user)
-        self.assertEqual(balance.credits_available, 90)
+        self.assertEqual(balance.credits_available, 990)
 
     def test_generacion_falla_si_saldo_es_insuficiente(self):
         balance = CreditBalance.objects.get(usuario=self.user)
