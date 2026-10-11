@@ -1,8 +1,8 @@
 import logging
 import os
 import uuid
-from decimal import Decimal
-from typing import Dict
+from decimal import Decimal, InvalidOperation
+from typing import Any, Dict
 
 import requests
 from rest_framework.exceptions import APIException
@@ -24,6 +24,13 @@ class PaymentGatewayUnavailableError(PaymentGatewayError):
     default_code = 'payment_gateway_unavailable'
 
 
+class PaymentNotFoundError(PaymentGatewayError):
+    """Mercado Pago no conoce ese Payment ID (HTTP 404)."""
+    status_code = 404
+    default_detail = 'El pago no existe en la pasarela.'
+    default_code = 'payment_not_found'
+
+
 def _env_flag(name: str, default: str = 'False') -> bool:
     return os.getenv(name, default).lower() in ('true', '1', 't')
 
@@ -32,11 +39,13 @@ class MercadoPagoClient:
     """
     Cliente de infraestructura para la API de Mercado Pago (Checkout Pro).
     Aísla el servicio de los detalles de red y del formato de la pasarela:
-    el resto del código solo conoce create_preference() y las excepciones
-    PaymentGatewayError / PaymentGatewayUnavailableError.
+    el resto del código solo conoce create_preference(), get_payment() y las
+    excepciones PaymentGatewayError / PaymentGatewayUnavailableError /
+    PaymentNotFoundError.
     """
 
     PREFERENCES_PATH = '/checkout/preferences'
+    PAYMENTS_PATH = '/v1/payments'
     CURRENCY_ID = 'ARS'  # Por ahora todos los paquetes se cobran en pesos argentinos.
 
     def __init__(self):
@@ -66,6 +75,61 @@ class MercadoPagoClient:
             return self._mock_preference(external_reference)
 
         return self._call_mercadopago(title, unit_price, external_reference)
+
+    def get_payment(self, payment_id: str) -> Dict[str, Any]:
+        """
+        Consulta un pago en Mercado Pago y retorna sus datos normalizados:
+        {
+            "status": "approved",
+            "external_reference": "42",
+            "transaction_amount": Decimal("1500.00"),
+            "currency_id": "ARS",
+        }
+        No tiene modo mock: los tests parchean este método.
+        """
+        if not self.access_token:
+            logger.error("MERCADOPAGO_ACCESS_TOKEN no encontrada en las variables de entorno.")
+            raise PaymentGatewayUnavailableError()
+
+        headers = {'Authorization': f'Bearer {self.access_token}'}
+
+        try:
+            response = requests.get(
+                f'{self.base_url}{self.PAYMENTS_PATH}/{payment_id}',
+                headers=headers,
+                timeout=self.timeout,
+            )
+        except requests.Timeout as exc:
+            logger.error("Timeout consultando el pago %s tras %s segundos", payment_id, self.timeout)
+            raise PaymentGatewayUnavailableError() from exc
+        except requests.RequestException as exc:
+            logger.exception("Error de red consultando el pago %s: %s", payment_id, exc)
+            raise PaymentGatewayUnavailableError() from exc
+
+        if response.status_code == 404:
+            logger.warning("Mercado Pago no conoce el pago %s", payment_id)
+            raise PaymentNotFoundError()
+
+        if response.status_code >= 500 or response.status_code == 429:
+            logger.error("Mercado Pago no disponible (código %s): %s", response.status_code, response.text[:500])
+            raise PaymentGatewayUnavailableError()
+
+        if response.status_code != 200:
+            logger.error("Mercado Pago rechazó la consulta del pago (código %s): %s", response.status_code, response.text[:500])
+            raise PaymentGatewayError()
+
+        try:
+            data = response.json()
+            return {
+                'status': str(data['status']),
+                'external_reference': str(data.get('external_reference') or ''),
+                # str() antes de Decimal: Decimal(1500.1) arrastra errores de float.
+                'transaction_amount': Decimal(str(data['transaction_amount'])),
+                'currency_id': data.get('currency_id'),
+            }
+        except (ValueError, KeyError, TypeError, InvalidOperation) as exc:
+            logger.error("Respuesta de pago malformada desde Mercado Pago: %s", response.text[:500])
+            raise PaymentGatewayError() from exc
 
     def _mock_preference(self, external_reference: str) -> Dict[str, str]:
         """
