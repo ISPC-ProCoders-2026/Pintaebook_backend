@@ -335,7 +335,7 @@ El proyecto usa **cuentas de prueba** de Mercado Pago. Ninguna operación mueve 
 3. Elegir **tarjeta de crédito** y completar con una tarjeta de prueba (tabla de abajo).
 4. Completar **todos** los campos, incluyendo **cuotas**.
 5. Pulsar **Pagar**.
-6. Volver a la app (botón "Volver al sitio" o redirección automática, según el entorno) y verificar el saldo.
+6. Volver a la app y verificar el saldo. **En local MP no redirige** (ver sección 8): abrir `http://localhost:4200/billing/result/success` o el dashboard a mano. En producción con `https` se espera la redirección automática.
 
 ### Tarjetas de prueba (Argentina)
 
@@ -419,8 +419,8 @@ Se definen en `Pintaebook_backend/.env` (modelo en `.env.example`). **El `.env` 
 ### Notas importantes
 
 - **`MERCADOPAGO_SANDBOX`:** según la documentación de MP, las credenciales de una cuenta de prueba ya funcionan como credenciales de prueba con el `init_point` normal. El `sandbox_init_point` fue la causa probable de que el botón "Pagar" no se habilitara en las primeras pruebas.
-- **`auto_return`:** el backend solo lo envía si la `back_url` de éxito es **`https://`**. Con `http://localhost`, MP rechaza la preferencia (`auto_return invalid`). En desarrollo el usuario vuelve con el botón "Volver al sitio" de MP; en producción, con `https`, vuelve solo.
-- **`back_urls` con `localhost`:** MP puede ignorarlas (en las pruebas quedaron vacías en la preferencia). No afecta el cobro ni el webhook; solo la vuelta automática. Para probar la pantalla de retorno en local, abrir a mano `http://localhost:4200/billing/result/success`.
+- **`auto_return`:** el backend solo lo envía si la `back_url` de éxito es **`https://`**. Con `http://localhost`, MP rechaza la preferencia (`auto_return invalid`). En desarrollo **no hay redirección** al front (comportamiento esperado); en producción con `https` el usuario debería volver solo (verificar al desplegar).
+- **`back_urls` con `localhost`:** **MP las descarta** (verificado: la preferencia queda con `back_urls` vacías aunque el `.env` las tenga). Por eso en local el usuario no vuelve a la app. No afecta el cobro ni el webhook; solo la vuelta automática. Para probar la pantalla de retorno en local, abrir a mano `http://localhost:4200/billing/result/success`.
 - **Usar el mismo origen en el front y en las `back_urls`** (`localhost` o `127.0.0.1`, no mezclar): el token JWT está en `localStorage`, que es **por origen**; si MP devolviera a otro origen, el usuario aparecería deslogueado.
 - **Cambios en el `.env`:** Django lee el `.env` al arrancar. Después de editarlo: `docker compose restart web`.
 - **Cambios en el código Python:** Daphne **no recarga solo**. Si una ruta nueva da 404 o un cambio no se refleja: `docker compose restart web`.
@@ -576,6 +576,7 @@ Con `MERCADOPAGO_MOCK_MODE=True` el checkout devuelve un `init_point` de ejemplo
 | "Pagar" queda gris en MP | Extensión que bloquea scripts, sesión equivocada o formulario incompleto | Ver sección 6 |
 | Pagué pero no se acreditaron créditos | Webhook no llegó o falló | Ver logs (`docker compose logs web`) y el inspector de ngrok; reenviar el aviso desde el inspector (botón *Replay*) |
 | La transacción queda `pendiente` | El aviso no llegó todavía, o el pago está pendiente en MP | Esperar y revisar el webhook; si hace falta, reenviarlo |
+| Tras pagar no vuelve a la app (en local) | MP descarta `back_urls` con `localhost` | Es lo esperado. Volver a mano al front; en producción con `https` debería redirigir |
 | El usuario vuelve a la app deslogueado | Origen distinto (`127.0.0.1` vs `localhost`) | Usar el mismo origen en el front y en las `back_urls` |
 
 ---
@@ -594,7 +595,9 @@ Lo que cambia al desplegar:
 | `MERCADOPAGO_BACK_URL_*` | `http://localhost:4200/...` | `https://<front-desplegado>/billing/result/...` (con `https` el usuario vuelve solo) |
 | `MERCADOPAGO_MOCK_MODE` | `False` | `False` |
 | Dónde se guardan las variables | `.env` local | **Panel de variables del hosting** (no en el repositorio) |
-| URL base de la API en el front | `http://localhost:8000/api/...` | URL del backend desplegado |
+| URL base de la API en el front | `http://localhost:8000/api/...` (hoy **escrita a mano** en cada servicio: `auth`, `billing`, `ebook`, `ebook-creation`) | URL del backend desplegado. Conviene centralizarla en un `environment` antes de desplegar |
+| Settings de Django | `config.settings.local` (por defecto en `manage.py`, `asgi.py`, `wsgi.py`) | Definir `DJANGO_SETTINGS_MODULE=config.settings.prod` en el hosting (`DEBUG=False`) |
+| Migraciones | — | Ejecutar `python manage.py migrate` en el despliegue (carga los paquetes) |
 
 Para cobrar dinero real habría que usar credenciales de una cuenta real verificada de MP (solo cambia el token). No es necesario para este proyecto.
 
