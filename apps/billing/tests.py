@@ -8,6 +8,7 @@ from apps.billing.models import CreditBalance, CreditPackage, EstadoTransaccion,
 from apps.billing.services import BillingService
 
 GET_PAYMENT = 'infrastructure.mercadopago_client.MercadoPagoClient.get_payment'
+GET_ORDER = 'infrastructure.mercadopago_client.MercadoPagoClient.get_merchant_order_payment_ids'
 
 
 class WebhookTests(APITestCase):
@@ -81,14 +82,50 @@ class WebhookTests(APITestCase):
             self._post('222')
         self.assertEqual(self._credits(), self.initial_credits + 500)
 
-    def test_notificacion_que_no_es_payment_se_ignora(self):
+    def test_notificacion_de_otro_tipo_se_ignora(self):
         with patch(GET_PAYMENT) as mock_get:
-            response = self.client.post(self.URL, {'type': 'merchant_order', 'data': {'id': '1'}}, format='json')
+            response = self.client.post(self.URL, {'type': 'plan', 'data': {'id': '1'}}, format='json')
         self.assertEqual(response.status_code, 200)
         mock_get.assert_not_called()
 
     def test_payment_id_invalido_devuelve_400(self):
         response = self._post('../../x')
+        self.assertEqual(response.status_code, 400)
+
+    def test_merchant_order_consulta_sus_pagos_y_acredita(self):
+        with patch(GET_ORDER, return_value=['123']) as mock_order, \
+                patch(GET_PAYMENT, return_value=self._payment()):
+            response = self.client.post(f'{self.URL}?topic=merchant_order&id=999')
+        self.assertEqual(response.status_code, 200)
+        mock_order.assert_called_once_with('999')
+        self.tx.refresh_from_db()
+        self.assertEqual(self.tx.estado_transaccion, EstadoTransaccion.APROBADO)
+        self.assertEqual(self._credits(), self.initial_credits + 500)
+
+    def test_merchant_order_y_payment_juntos_acreditan_una_sola_vez(self):
+        with patch(GET_ORDER, return_value=['123']), \
+                patch(GET_PAYMENT, return_value=self._payment()):
+            self.client.post(f'{self.URL}?topic=merchant_order&id=999')
+            self._post('123')
+        self.assertEqual(self._credits(), self.initial_credits + 500)
+
+    def test_merchant_order_sin_pagos_no_acredita(self):
+        with patch(GET_ORDER, return_value=[]), patch(GET_PAYMENT) as mock_get:
+            response = self.client.post(f'{self.URL}?topic=merchant_order&id=999')
+        self.assertEqual(response.status_code, 200)
+        mock_get.assert_not_called()
+        self.assertEqual(self._credits(), self.initial_credits)
+
+    def test_formato_ipn_por_body_con_resource(self):
+        with patch(GET_PAYMENT, return_value=self._payment()):
+            response = self.client.post(
+                self.URL, {'resource': '123', 'topic': 'payment'}, format='json'
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._credits(), self.initial_credits + 500)
+
+    def test_merchant_order_con_id_invalido_devuelve_400(self):
+        response = self.client.post(f'{self.URL}?topic=merchant_order&id=../x')
         self.assertEqual(response.status_code, 400)
 
 

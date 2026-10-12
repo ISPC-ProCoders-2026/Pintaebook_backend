@@ -2,7 +2,7 @@ import logging
 import os
 import uuid
 from decimal import Decimal, InvalidOperation
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import requests
 from rest_framework.exceptions import APIException
@@ -46,6 +46,7 @@ class MercadoPagoClient:
 
     PREFERENCES_PATH = '/checkout/preferences'
     PAYMENTS_PATH = '/v1/payments'
+    MERCHANT_ORDERS_PATH = '/merchant_orders'
     CURRENCY_ID = 'ARS'  # Por ahora todos los paquetes se cobran en pesos argentinos.
 
     def __init__(self):
@@ -89,36 +90,7 @@ class MercadoPagoClient:
         }
         No tiene modo mock: los tests parchean este método.
         """
-        if not self.access_token:
-            logger.error("MERCADOPAGO_ACCESS_TOKEN no encontrada en las variables de entorno.")
-            raise PaymentGatewayUnavailableError()
-
-        headers = {'Authorization': f'Bearer {self.access_token}'}
-
-        try:
-            response = requests.get(
-                f'{self.base_url}{self.PAYMENTS_PATH}/{payment_id}',
-                headers=headers,
-                timeout=self.timeout,
-            )
-        except requests.Timeout as exc:
-            logger.error("Timeout consultando el pago %s tras %s segundos", payment_id, self.timeout)
-            raise PaymentGatewayUnavailableError() from exc
-        except requests.RequestException as exc:
-            logger.exception("Error de red consultando el pago %s: %s", payment_id, exc)
-            raise PaymentGatewayUnavailableError() from exc
-
-        if response.status_code == 404:
-            logger.warning("Mercado Pago no conoce el pago %s", payment_id)
-            raise PaymentNotFoundError()
-
-        if response.status_code >= 500 or response.status_code == 429:
-            logger.error("Mercado Pago no disponible (código %s): %s", response.status_code, response.text[:500])
-            raise PaymentGatewayUnavailableError()
-
-        if response.status_code != 200:
-            logger.error("Mercado Pago rechazó la consulta del pago (código %s): %s", response.status_code, response.text[:500])
-            raise PaymentGatewayError()
+        response = self._get(f'{self.PAYMENTS_PATH}/{payment_id}', f'el pago {payment_id}')
 
         try:
             data = response.json()
@@ -132,6 +104,59 @@ class MercadoPagoClient:
         except (ValueError, KeyError, TypeError, InvalidOperation) as exc:
             logger.error("Respuesta de pago malformada desde Mercado Pago: %s", response.text[:500])
             raise PaymentGatewayError() from exc
+
+    def get_merchant_order_payment_ids(self, order_id: str) -> List[str]:
+        """
+        Consulta una orden de comercio (merchant_order) y retorna los IDs de los
+        pagos asociados. Mercado Pago a veces avisa solo de la orden y no del
+        pago: con estos IDs el servicio verifica cada pago por separado.
+        """
+        response = self._get(f'{self.MERCHANT_ORDERS_PATH}/{order_id}', f'la orden {order_id}')
+
+        try:
+            payments = response.json().get('payments') or []
+            return [str(p['id']) for p in payments if p.get('id')]
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
+            logger.error("Orden malformada desde Mercado Pago: %s", response.text[:500])
+            raise PaymentGatewayError() from exc
+
+    def _get(self, path: str, what: str):
+        """
+        GET autenticado a la API de Mercado Pago. Traduce los fallos de red y
+        los códigos HTTP a las excepciones del módulo; solo retorna si hubo 200.
+        """
+        if not self.access_token:
+            logger.error("MERCADOPAGO_ACCESS_TOKEN no encontrada en las variables de entorno.")
+            raise PaymentGatewayUnavailableError()
+
+        headers = {'Authorization': f'Bearer {self.access_token}'}
+
+        try:
+            response = requests.get(
+                f'{self.base_url}{path}',
+                headers=headers,
+                timeout=self.timeout,
+            )
+        except requests.Timeout as exc:
+            logger.error("Timeout consultando %s tras %s segundos", what, self.timeout)
+            raise PaymentGatewayUnavailableError() from exc
+        except requests.RequestException as exc:
+            logger.exception("Error de red consultando %s: %s", what, exc)
+            raise PaymentGatewayUnavailableError() from exc
+
+        if response.status_code == 404:
+            logger.warning("Mercado Pago no conoce %s", what)
+            raise PaymentNotFoundError()
+
+        if response.status_code >= 500 or response.status_code == 429:
+            logger.error("Mercado Pago no disponible (código %s): %s", response.status_code, response.text[:500])
+            raise PaymentGatewayUnavailableError()
+
+        if response.status_code != 200:
+            logger.error("Mercado Pago rechazó la consulta de %s (código %s): %s", what, response.status_code, response.text[:500])
+            raise PaymentGatewayError()
+
+        return response
 
     def _mock_preference(self, external_reference: str) -> Dict[str, str]:
         """
@@ -176,14 +201,18 @@ class MercadoPagoClient:
                 "notification_url y el webhook no recibirá avisos."
             )
 
-        # auto_return solo funciona si hay back_urls válidas, por eso van juntas.
         if self.back_url_success:
             payload['back_urls'] = {
                 'success': self.back_url_success,
                 'failure': self.back_url_failure or self.back_url_success,
                 'pending': self.back_url_pending or self.back_url_success,
             }
-            payload['auto_return'] = 'approved'
+            # auto_return (volver solo a la app tras pagar) exige una back_url
+            # pública https: con localhost/127.0.0.1 Mercado Pago responde 400
+            # "auto_return invalid". En desarrollo el usuario vuelve con el
+            # botón "Volver al sitio" de la página de pago.
+            if self.back_url_success.lower().startswith('https://'):
+                payload['auto_return'] = 'approved'
 
         headers = {
             'Authorization': f'Bearer {self.access_token}',

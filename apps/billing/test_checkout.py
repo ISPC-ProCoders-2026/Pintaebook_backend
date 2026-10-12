@@ -263,6 +263,16 @@ class MercadoPagoClientTests(SimpleTestCase):
         )
 
     @patch('infrastructure.mercadopago_client.requests.post')
+    def test_no_envia_auto_return_si_la_back_url_no_es_https(self, mock_post):
+        mock_post.return_value = self._response(201, self._preferencia_ok())
+
+        self._create(self._client(MERCADOPAGO_BACK_URL_SUCCESS='http://127.0.0.1:4200/pago'))
+
+        payload = mock_post.call_args.kwargs['json']
+        self.assertEqual(payload['back_urls']['success'], 'http://127.0.0.1:4200/pago')
+        self.assertNotIn('auto_return', payload)
+
+    @patch('infrastructure.mercadopago_client.requests.post')
     def test_envia_notification_url_si_esta_configurada(self, mock_post):
         mock_post.return_value = self._response(201, self._preferencia_ok())
 
@@ -371,6 +381,21 @@ class MercadoPagoClientTests(SimpleTestCase):
         self.assertEqual(mock_get.call_args.args[0], self.PAYMENT_URL)
         self.assertEqual(mock_get.call_args.kwargs['headers']['Authorization'], 'Bearer TEST-token')
         self.assertEqual(mock_get.call_args.kwargs['timeout'], client.timeout)
+
+    @patch('infrastructure.mercadopago_client.requests.get')
+    def test_get_merchant_order_devuelve_los_ids_de_sus_pagos(self, mock_get):
+        mock_get.return_value = self._response(200, {'payments': [{'id': 11}, {'id': 22}]})
+
+        ids = self._client().get_merchant_order_payment_ids('999')
+
+        self.assertEqual(ids, ['11', '22'])
+        self.assertEqual(mock_get.call_args.args[0], 'https://api.mercadopago.com/merchant_orders/999')
+
+    @patch('infrastructure.mercadopago_client.requests.get')
+    def test_get_merchant_order_sin_pagos_devuelve_lista_vacia(self, mock_get):
+        mock_get.return_value = self._response(200, {'payments': []})
+
+        self.assertEqual(self._client().get_merchant_order_payment_ids('999'), [])
 
     @patch('infrastructure.mercadopago_client.requests.get')
     def test_get_payment_inexistente_lanza_error_404(self, mock_get):

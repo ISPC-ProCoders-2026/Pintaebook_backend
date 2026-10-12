@@ -276,6 +276,24 @@ class BillingService:
             return 'ignored'
 
     @staticmethod
+    def process_merchant_order_notification(order_id: str, gateway=None) -> list:
+        """
+        Procesa un aviso de 'merchant_order' (la orden de comercio).
+
+        Mercado Pago a veces avisa solo de la orden y no del pago. Se consulta
+        la orden, se obtienen los pagos que tiene y cada uno se procesa con el
+        mismo camino (idempotente) que un aviso de 'payment'.
+        Devuelve la lista de resultados, uno por pago.
+        """
+        gateway = gateway or MercadoPagoClient()
+        payment_ids = gateway.get_merchant_order_payment_ids(order_id)
+
+        return [
+            BillingService.process_payment_notification(payment_id, gateway)
+            for payment_id in payment_ids
+        ]
+
+    @staticmethod
     def _credit_purchase(user_id, amount: int) -> None:
         """
         Suma los créditos comprados al saldo del usuario.

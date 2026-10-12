@@ -84,15 +84,27 @@ class BillingWebhookView(APIView):
 
         # MP manda el tipo y el id por query (?type=payment&data.id=123),
         # por body JSON, o con el formato viejo (?topic=payment&id=123).
-        notification_type = body.get('type') or params.get('type') or params.get('topic')
-        payment_id = str(data.get('id') or params.get('data.id') or params.get('id') or '')
+        notification_type = (
+            body.get('type') or body.get('topic')
+            or params.get('type') or params.get('topic')
+        )
+        # Formato IPN por body: {"resource": "123" o ".../merchant_orders/123", "topic": ...}
+        resource = str(body.get('resource') or '').rstrip('/').rsplit('/', 1)[-1]
+        resource_id = str(
+            data.get('id') or params.get('data.id') or params.get('id') or resource or ''
+        )
 
-        if notification_type != 'payment':
+        if notification_type == 'payment':
+            handler = BillingService.process_payment_notification
+        elif notification_type in ('merchant_order', 'topic_merchant_order_wh'):
+            # El aviso trae el ID de la orden, no el del pago.
+            handler = BillingService.process_merchant_order_notification
+        else:
             return Response({'detail': 'Notificación ignorada.'}, status=status.HTTP_200_OK)
 
         # Este valor termina en la URL hacia MP: solo dígitos.
-        if not payment_id.isdigit():
-            return Response({'detail': 'Payment ID inválido.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not resource_id.isdigit():
+            return Response({'detail': 'ID inválido.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        BillingService.process_payment_notification(payment_id)
+        handler(resource_id)
         return Response({'detail': 'OK'}, status=status.HTTP_200_OK)
