@@ -327,10 +327,3 @@ Todas las rutas protegidas requieren: `Authorization: Bearer <access_token>`
 
 ---
 
-## Roadmap
-
-- [x] **Exportador EPUB** (`apps/exporter`): generación de EPUB desde el árbol HTML de MongoDB (ver `documentacion-guia/workflow_exportar_epub.md`).
-- [ ] **Exportador PDF**: pendiente.
-- [ ] **Streaming de tokens** (`ai_engine`): efecto máquina de escribir en el editor al refinar secciones.
-- [ ] **Notificaciones** (`apps/notifications`): sistema de alertas en tiempo real para eventos del sistema.
-- [ ] **Reconexión automática WebSocket**: retry con backoff exponencial en el frontend para casos de red inestable.
