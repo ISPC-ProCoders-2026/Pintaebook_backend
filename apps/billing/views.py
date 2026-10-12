@@ -3,9 +3,25 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 
-from .models import CreditBalance
-from .serializers import CheckoutRequestSerializer, CreditBalanceSerializer
+from .models import CreditBalance, CreditPackage
+from .serializers import (
+    CheckoutRequestSerializer,
+    CreditBalanceSerializer,
+    CreditPackageSerializer,
+)
 from .services import BillingService
+
+
+class CreditPackageListView(APIView):
+    """
+    Catálogo de paquetes de créditos disponibles para comprar, del más barato
+    al más caro. Son pocos, por eso se devuelve la lista completa sin paginar.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        packages = CreditPackage.objects.order_by('precio', 'id')
+        return Response(CreditPackageSerializer(packages, many=True).data)
 
 
 class BillingBalanceView(APIView):
@@ -42,9 +58,20 @@ class BillingCheckoutView(APIView):
 
 class BillingWebhookView(APIView):
     """
-    Webhook de Mercado Pago. Público: lo llama MP, no un usuario.
-    No se confía en el cuerpo de la petición: solo se extrae el Payment ID y
-    el servicio consulta a Mercado Pago el estado real del pago.
+    Endpoint (Webhook) receptor de notificaciones automáticas de Mercado Pago.
+
+    Objetivo:
+    - Escuchar las actualizaciones de estado de pagos (aprobado, rechazado, etc.)
+      enviadas directamente por los servidores de Mercado Pago en segundo plano.
+
+    Funcionamiento y Seguridad:
+    - Público / Sin JWT: Lo invoca Mercado Pago directamente, no un usuario autenticado.
+    - Validación y anti-fraude: Nunca se confía ciegamente en el contenido recibido.
+      Solo se extrae y valida el Payment ID. Luego, el servicio (`BillingService`)
+      realiza una consulta directa a la API oficial de Mercado Pago para verificar
+      el estado real de la transacción antes de impactar los cambios en el sistema.
+    - Compatibilidad: Soporta los distintos formatos de notificación de MP
+      (JSON body, query params modernos y formato legacy topic/id).
     """
     # Sin autenticación: si quedara el JWT global, un header ajeno daría 401.
     authentication_classes = []
@@ -57,15 +84,27 @@ class BillingWebhookView(APIView):
 
         # MP manda el tipo y el id por query (?type=payment&data.id=123),
         # por body JSON, o con el formato viejo (?topic=payment&id=123).
-        notification_type = body.get('type') or params.get('type') or params.get('topic')
-        payment_id = str(data.get('id') or params.get('data.id') or params.get('id') or '')
+        notification_type = (
+            body.get('type') or body.get('topic')
+            or params.get('type') or params.get('topic')
+        )
+        # Formato IPN por body: {"resource": "123" o ".../merchant_orders/123", "topic": ...}
+        resource = str(body.get('resource') or '').rstrip('/').rsplit('/', 1)[-1]
+        resource_id = str(
+            data.get('id') or params.get('data.id') or params.get('id') or resource or ''
+        )
 
-        if notification_type != 'payment':
+        if notification_type == 'payment':
+            handler = BillingService.process_payment_notification
+        elif notification_type in ('merchant_order', 'topic_merchant_order_wh'):
+            # El aviso trae el ID de la orden, no el del pago.
+            handler = BillingService.process_merchant_order_notification
+        else:
             return Response({'detail': 'Notificación ignorada.'}, status=status.HTTP_200_OK)
 
         # Este valor termina en la URL hacia MP: solo dígitos.
-        if not payment_id.isdigit():
-            return Response({'detail': 'Payment ID inválido.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not resource_id.isdigit():
+            return Response({'detail': 'ID inválido.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        BillingService.process_payment_notification(payment_id)
+        handler(resource_id)
         return Response({'detail': 'OK'}, status=status.HTTP_200_OK)

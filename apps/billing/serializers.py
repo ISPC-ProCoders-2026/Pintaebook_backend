@@ -1,5 +1,12 @@
 from rest_framework import serializers
-from .models import CreditBalance
+from .models import CreditBalance, CreditPackage
+
+
+class CreditPackageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CreditPackage
+        fields = ('id', 'nombre', 'cantidad_creditos', 'precio')
+        read_only_fields = fields
 
 
 class CreditBalanceSerializer(serializers.ModelSerializer):
