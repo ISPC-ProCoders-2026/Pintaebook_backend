@@ -12,6 +12,7 @@ from infrastructure.mercadopago_client import (
     MercadoPagoClient,
     PaymentGatewayError,
     PaymentGatewayUnavailableError,
+    PaymentNotFoundError,
 )
 from .models import CreditPackage, EstadoTransaccion, PaymentTransaction
 
@@ -68,10 +69,13 @@ class CheckoutTests(APITestCase):
     def test_checkout_envia_a_la_pasarela_titulo_precio_y_referencia(self):
         self._post()
 
+        # La referencia es el ID de la transacción: así el webhook sabe
+        # exactamente qué fila acreditar cuando Mercado Pago avisa del pago.
+        transaccion = PaymentTransaction.objects.get()
         self.gateway.create_preference.assert_called_once_with(
             title='Pack 100',
             unit_price=Decimal('9.99'),
-            external_reference=f'{self.user.pk}:{self.paquete.pk}',
+            external_reference=str(transaccion.pk),
         )
 
     def test_checkout_ignora_el_monto_enviado_en_el_body(self):
@@ -123,27 +127,31 @@ class CheckoutTests(APITestCase):
         self.gateway.create_preference.assert_not_called()
         self.assertEqual(PaymentTransaction.objects.count(), 0)
 
-    def test_checkout_pasarela_caida_retorna_503_y_no_crea_transaccion(self):
+    def test_checkout_pasarela_caida_retorna_503_y_deja_transaccion_fallida(self):
         self.gateway.create_preference.side_effect = PaymentGatewayUnavailableError()
 
         response = self._post()
 
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
-        self.assertEqual(PaymentTransaction.objects.count(), 0)
+        # No queda ningún pendiente huérfano: la fila se cierra como 'fallido'.
+        transaccion = PaymentTransaction.objects.get()
+        self.assertEqual(transaccion.estado_transaccion, EstadoTransaccion.FALLIDO)
 
-    def test_checkout_pasarela_rechaza_retorna_502_y_no_crea_transaccion(self):
+    def test_checkout_pasarela_rechaza_retorna_502_y_deja_transaccion_fallida(self):
         self.gateway.create_preference.side_effect = PaymentGatewayError()
 
         response = self._post()
 
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
-        self.assertEqual(PaymentTransaction.objects.count(), 0)
+        transaccion = PaymentTransaction.objects.get()
+        self.assertEqual(transaccion.estado_transaccion, EstadoTransaccion.FALLIDO)
 
 
 class MercadoPagoClientTests(SimpleTestCase):
     """Cliente de infraestructura: requests.post se reemplaza, no hay red ni base de datos."""
 
     URL = 'https://api.mercadopago.com/checkout/preferences'
+    PAYMENT_URL = 'https://api.mercadopago.com/v1/payments/123'
 
     def _client(self, **overrides):
         # Se fijan TODAS las variables para que el entorno del contenedor no influya.
@@ -182,6 +190,15 @@ class MercadoPagoClientTests(SimpleTestCase):
             'id': 'PREF-1',
             'init_point': 'https://mp.test/prod',
             'sandbox_init_point': 'https://mp.test/sandbox',
+        }
+
+    @staticmethod
+    def _pago_ok():
+        return {
+            'status': 'approved',
+            'external_reference': '7',
+            'transaction_amount': 1500.5,
+            'currency_id': 'ARS',
         }
 
     @patch('infrastructure.mercadopago_client.requests.post')
@@ -314,3 +331,50 @@ class MercadoPagoClientTests(SimpleTestCase):
         mock_post.assert_not_called()
         self.assertTrue(result['preference_id'].startswith('MOCK-'))
         self.assertIn(result['preference_id'], result['init_point'])
+
+    # --- get_payment (consulta del pago para el webhook) ---
+
+    @patch('infrastructure.mercadopago_client.requests.get')
+    def test_get_payment_normaliza_la_respuesta(self, mock_get):
+        mock_get.return_value = self._response(200, self._pago_ok())
+        client = self._client()
+
+        result = client.get_payment('123')
+
+        self.assertEqual(
+            result,
+            {
+                'status': 'approved',
+                'external_reference': '7',
+                'transaction_amount': Decimal('1500.5'),
+                'currency_id': 'ARS',
+            },
+        )
+        self.assertEqual(mock_get.call_args.args[0], self.PAYMENT_URL)
+        self.assertEqual(mock_get.call_args.kwargs['headers']['Authorization'], 'Bearer TEST-token')
+        self.assertEqual(mock_get.call_args.kwargs['timeout'], client.timeout)
+
+    @patch('infrastructure.mercadopago_client.requests.get')
+    def test_get_payment_inexistente_lanza_error_404(self, mock_get):
+        mock_get.return_value = self._response(404, text='not found')
+
+        with self.assertRaises(PaymentNotFoundError) as ctx:
+            self._client().get_payment('123')
+
+        self.assertEqual(ctx.exception.status_code, 404)
+
+    @patch('infrastructure.mercadopago_client.requests.get')
+    def test_get_payment_pasarela_caida_lanza_error_503(self, mock_get):
+        for code in (500, 503, 429):
+            with self.subTest(status_code=code):
+                mock_get.return_value = self._response(code, text='error')
+                with self.assertRaises(PaymentGatewayUnavailableError) as ctx:
+                    self._client().get_payment('123')
+                self.assertEqual(ctx.exception.status_code, 503)
+
+    @patch('infrastructure.mercadopago_client.requests.get')
+    def test_get_payment_sin_access_token_no_llama_a_la_red(self, mock_get):
+        with self.assertRaises(PaymentGatewayUnavailableError):
+            self._client(MERCADOPAGO_ACCESS_TOKEN='').get_payment('123')
+
+        mock_get.assert_not_called()
