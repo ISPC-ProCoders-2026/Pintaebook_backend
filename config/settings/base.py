@@ -19,7 +19,11 @@ SECRET_KEY = env('SECRET_KEY', default='django-insecure-8(_^ddtmh44t2@r3b!vgc@-9
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env('DEBUG')
 
-ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=[])
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=[
+    'localhost',
+    '127.0.0.1',
+    'factual-huntsman-snuff.ngrok-free.dev',
+])
 
 # Google Auth Settings
 GOOGLE_CLIENT_ID = env('GOOGLE_CLIENT_ID', default='')

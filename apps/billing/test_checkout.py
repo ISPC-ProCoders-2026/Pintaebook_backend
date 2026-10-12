@@ -163,6 +163,7 @@ class MercadoPagoClientTests(SimpleTestCase):
             'MERCADOPAGO_BACK_URL_SUCCESS': '',
             'MERCADOPAGO_BACK_URL_FAILURE': '',
             'MERCADOPAGO_BACK_URL_PENDING': '',
+            'MERCADOPAGO_NOTIFICATION_URL': '',
         }
         env.update(overrides)
         with patch.dict(os.environ, env):
@@ -260,6 +261,23 @@ class MercadoPagoClientTests(SimpleTestCase):
                 'pending': 'https://front.test/ok',
             },
         )
+
+    @patch('infrastructure.mercadopago_client.requests.post')
+    def test_envia_notification_url_si_esta_configurada(self, mock_post):
+        mock_post.return_value = self._response(201, self._preferencia_ok())
+
+        self._create(self._client(MERCADOPAGO_NOTIFICATION_URL='https://api.test/api/billing/webhook/'))
+
+        payload = mock_post.call_args.kwargs['json']
+        self.assertEqual(payload['notification_url'], 'https://api.test/api/billing/webhook/')
+
+    @patch('infrastructure.mercadopago_client.requests.post')
+    def test_no_envia_notification_url_si_no_esta_configurada(self, mock_post):
+        mock_post.return_value = self._response(201, self._preferencia_ok())
+
+        self._create(self._client())
+
+        self.assertNotIn('notification_url', mock_post.call_args.kwargs['json'])
 
     @patch('infrastructure.mercadopago_client.requests.post')
     def test_timeout_lanza_error_503(self, mock_post):

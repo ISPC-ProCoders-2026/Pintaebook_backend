@@ -56,6 +56,8 @@ class MercadoPagoClient:
         self.back_url_success = os.getenv('MERCADOPAGO_BACK_URL_SUCCESS', '')
         self.back_url_failure = os.getenv('MERCADOPAGO_BACK_URL_FAILURE', '')
         self.back_url_pending = os.getenv('MERCADOPAGO_BACK_URL_PENDING', '')
+        # URL pública del webhook: a dónde Mercado Pago avisa los pagos.
+        self.notification_url = os.getenv('MERCADOPAGO_NOTIFICATION_URL', '')
         self.timeout = 10  # Timeout en segundos
 
     def create_preference(
@@ -163,6 +165,16 @@ class MercadoPagoClient:
             ],
             'external_reference': external_reference,
         }
+
+        # Sin notification_url Mercado Pago no sabe a dónde avisar el pago
+        # y nunca se acreditarían los créditos. Debe ser una URL pública.
+        if self.notification_url:
+            payload['notification_url'] = self.notification_url
+        else:
+            logger.warning(
+                "MERCADOPAGO_NOTIFICATION_URL vacía: la preferencia se crea sin "
+                "notification_url y el webhook no recibirá avisos."
+            )
 
         # auto_return solo funciona si hay back_urls válidas, por eso van juntas.
         if self.back_url_success:

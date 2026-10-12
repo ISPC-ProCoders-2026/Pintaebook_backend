@@ -42,9 +42,20 @@ class BillingCheckoutView(APIView):
 
 class BillingWebhookView(APIView):
     """
-    Webhook de Mercado Pago. Público: lo llama MP, no un usuario.
-    No se confía en el cuerpo de la petición: solo se extrae el Payment ID y
-    el servicio consulta a Mercado Pago el estado real del pago.
+    Endpoint (Webhook) receptor de notificaciones automáticas de Mercado Pago.
+
+    Objetivo:
+    - Escuchar las actualizaciones de estado de pagos (aprobado, rechazado, etc.)
+      enviadas directamente por los servidores de Mercado Pago en segundo plano.
+
+    Funcionamiento y Seguridad:
+    - Público / Sin JWT: Lo invoca Mercado Pago directamente, no un usuario autenticado.
+    - Validación y anti-fraude: Nunca se confía ciegamente en el contenido recibido.
+      Solo se extrae y valida el Payment ID. Luego, el servicio (`BillingService`)
+      realiza una consulta directa a la API oficial de Mercado Pago para verificar
+      el estado real de la transacción antes de impactar los cambios en el sistema.
+    - Compatibilidad: Soporta los distintos formatos de notificación de MP
+      (JSON body, query params modernos y formato legacy topic/id).
     """
     # Sin autenticación: si quedara el JWT global, un header ajeno daría 401.
     authentication_classes = []
