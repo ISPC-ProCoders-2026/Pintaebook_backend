@@ -177,6 +177,8 @@ CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=[
     "http://127.0.0.1:4200",
 ])
 CORS_ALLOW_CREDENTIALS = True
+# El front necesita leer el nombre del archivo en las descargas (export EPUB).
+CORS_EXPOSE_HEADERS = ['Content-Disposition']
 
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/

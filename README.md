@@ -42,7 +42,7 @@ pintaebook_backend/
 |   |   `-- routing.py     # Rutas WebSocket
 |   |-- content/           # Almacenamiento del árbol HTML en MongoDB y concurrencia optimista
 |   |-- ai_engine/         # Inferencia puntual, refinamiento de texto y auditoría
-|   |-- exporter/          # Exportación multiformato EPUB/PDF (fase posterior)
+|   |-- exporter/          # Exportación a EPUB (PDF: fase posterior)
 |   `-- notifications/     # Eventos y notificaciones (fase posterior)
 |-- config/
 |   |-- settings/base.py   # Configuración global (incluye CHANNEL_LAYERS con Redis)
@@ -276,6 +276,7 @@ Todas las rutas protegidas requieren: `Authorization: Bearer <access_token>`
 | DELETE | `/api/ebooks/<id>/` | Eliminar (PostgreSQL + MongoDB) | Gratis | Privado |
 | GET | `/api/ebooks/<id>/content/` | Árbol de capítulos y secciones (HTML) | Gratis | Privado |
 | PATCH | `/api/ebooks/<id>/content/` | Guardar cambios de secciones | Gratis | Privado |
+| GET | `/api/ebooks/<id>/export/epub/` | Descarga el e-book como archivo `.epub` (solo `COMPLETED`) | Gratis | Privado |
 
 ### WebSocket de Progreso
 
@@ -328,7 +329,8 @@ Todas las rutas protegidas requieren: `Authorization: Bearer <access_token>`
 
 ## Roadmap
 
-- [ ] **Exportador** (`apps/exporter`): generación de EPUB y PDF desde el árbol HTML de MongoDB.
+- [x] **Exportador EPUB** (`apps/exporter`): generación de EPUB desde el árbol HTML de MongoDB (ver `documentacion-guia/workflow_exportar_epub.md`).
+- [ ] **Exportador PDF**: pendiente.
 - [ ] **Streaming de tokens** (`ai_engine`): efecto máquina de escribir en el editor al refinar secciones.
 - [ ] **Notificaciones** (`apps/notifications`): sistema de alertas en tiempo real para eventos del sistema.
 - [ ] **Reconexión automática WebSocket**: retry con backoff exponencial en el frontend para casos de red inestable.
