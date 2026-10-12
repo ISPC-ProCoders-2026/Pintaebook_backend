@@ -260,6 +260,11 @@ Todas las rutas protegidas requieren: `Authorization: Bearer <access_token>`
 | Método | Ruta | Descripción | Acceso |
 |---|---|---|---|
 | GET | `/api/billing/balance/` | Saldo actual de créditos | Privado |
+| GET | `/api/billing/packages/` | Catálogo de paquetes de créditos | Privado |
+| POST | `/api/billing/checkout/` | Inicia el pago de un paquete en Mercado Pago (retorna `init_point`) | Privado |
+| POST | `/api/billing/webhook/` | Aviso de pagos de Mercado Pago (lo llama MP, no el front) | Público |
+
+> Detalle completo, flujo y guía para el front en `documentacion-guia/workflow_billing_guia_actual.md`.
 
 ### E-books REST (`/api/ebooks/`)
 

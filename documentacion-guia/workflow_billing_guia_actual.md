@@ -1,71 +1,451 @@
-# Guía de Billing: créditos, paquetes y transacciones de pago
+# Billing: créditos, paquetes y pagos con Mercado Pago
 
-### Pinta Ebook — Documentación Técnica (módulo `billing` — Estado Actual)
+### Pinta Ebook — Documentación técnica (módulo `billing` — Estado Actual)
 
-> **Estado:**
-> - Modelo de datos de paquetes y pagos (`CreditPackage`, `PaymentTransaction`): implementado y migrado.
-> - `GET /api/billing/balance/` (saldo): existente.
-> - `POST /api/billing/checkout/` (iniciar el pago de un paquete, tk084): implementado, probado con 23 tests automáticos, con el modo mock y **contra el sandbox real de Mercado Pago** (credenciales de prueba): crea la preferencia, devuelve el `init_point` y registra la transacción `pendiente`. **No se completó un pago de punta a punta** (ver sección [10](#10-puntos-abiertos)). Ver sección [7](#7-endpoints).
-> - Las variables de entorno de Mercado Pago están documentadas en `.env.example` y en la sección [11](#11-configuración-variables-de-entorno).
-> - **Todavía no existe el webhook de Mercado Pago**: pagar no acredita créditos ni cambia el estado de la transacción.
+> **Estado: integración completa y probada de punta a punta** con cuentas de prueba de Mercado Pago.
+> Un usuario elige un paquete → paga en Mercado Pago → el backend recibe el aviso, verifica el pago y le acredita los créditos.
+>
+> Esta guía reemplaza a `workflow_billing_webhook.md` (eliminado: su contenido está en la sección 7).
 
 ## Índice
 
-1. [Qué incluye esta guía](#1-qué-incluye-esta-guía)
-2. [Relaciones](#2-relaciones)
-3. [Tablas](#3-tablas)
-4. [Estados de una transacción](#4-estados-de-una-transacción)
-5. [Reglas de integridad](#5-reglas-de-integridad)
-6. [Cómo usarlo desde código (backend)](#6-cómo-usarlo-desde-código-backend)
-7. [Endpoints](#7-endpoints)
-8. [Cómo verificar](#8-cómo-verificar)
-9. [Decisiones de diseño](#9-decisiones-de-diseño)
-10. [Puntos abiertos](#10-puntos-abiertos)
-11. [Configuración (variables de entorno)](#11-configuración-variables-de-entorno)
+1. [Qué hace esta feature (en 30 segundos)](#1-qué-hace-esta-feature-en-30-segundos)
+2. [Conceptos básicos](#2-conceptos-básicos)
+3. [Flujo completo](#3-flujo-completo)
+4. [Endpoints (entrada y salida)](#4-endpoints-entrada-y-salida)
+5. [Guía para el frontend (Angular), paso a paso](#5-guía-para-el-frontend-angular-paso-a-paso)
+6. [Cómo pagar en modo prueba (qué hace el usuario)](#6-cómo-pagar-en-modo-prueba-qué-hace-el-usuario)
+7. [Cómo funciona el webhook por dentro](#7-cómo-funciona-el-webhook-por-dentro)
+8. [Configuración: variables de entorno](#8-configuración-variables-de-entorno)
+9. [Datos: tablas, estados y reglas](#9-datos-tablas-estados-y-reglas)
+10. [Cómo probar y verificar](#10-cómo-probar-y-verificar)
+11. [Problemas frecuentes](#11-problemas-frecuentes)
+12. [Despliegue en producción](#12-despliegue-en-producción)
+13. [Archivos del módulo, decisiones y próximos pasos](#13-archivos-del-módulo-decisiones-y-próximos-pasos)
 
-## 1. Qué incluye esta guía
+---
 
-Esta guía cubre dos entregas del módulo `billing`:
+## 1. Qué hace esta feature (en 30 segundos)
 
-- **tk083:** modelos `CreditPackage` y `PaymentTransaction` (secciones 2 a 5).
-- **tk084:** integración con Mercado Pago y endpoint de checkout (secciones 6, 7 y 11).
+Los e-books se generan con **créditos**. Cuando un usuario se queda sin créditos, puede **comprar paquetes** pagando con **Mercado Pago (Checkout Pro)**.
 
-Se agregaron a `apps/billing/models.py` las dos entidades de pagos definidas en el Diagrama Relacional PostgreSQL (bloque *FINANZAS*):
+- La página de pago es **de Mercado Pago**: nuestra app nunca ve ni guarda datos de tarjetas.
+- Los créditos **los acredita el backend**, nunca el frontend, cuando Mercado Pago le confirma el pago.
+- Hoy el proyecto usa **cuentas de prueba** de Mercado Pago: los pagos son ficticios y no mueven dinero real (ver sección 6).
 
-| Entidad Django | Tabla PostgreSQL | Para qué sirve |
+### Paquetes cargados por defecto (migración `0003_seed_credit_packages`)
+
+| id | Nombre | Créditos | Precio (ARS) |
+|---|---|---|---|
+| 1 | Básico | 100 | 1.000 |
+| 2 | Estándar | 500 | 4.000 |
+| 3 | Pro | 1000 | 7.000 |
+
+Se cargan solos con `python manage.py migrate`. No hay que crearlos a mano.
+
+---
+
+## 2. Conceptos básicos
+
+| Término | Qué es |
+|---|---|
+| **Checkout Pro** | Modalidad de Mercado Pago (MP) en la que **MP aloja la página de pago**. Nuestra app solo redirige al usuario a una URL de MP. |
+| **Access Token** | Credencial secreta del backend para hablar con la API de MP. Vive solo en el `.env`/variables del servidor. |
+| **Preferencia** | "Pedido de cobro" que el backend crea en MP: qué se vende, cuánto cuesta, a dónde volver y a dónde avisar. |
+| **`init_point`** | URL de pago de esa preferencia. El front redirige al usuario a ella. |
+| **`external_reference`** | Texto que enviamos a MP y que MP nos devuelve en el pago. Acá es el **ID de nuestra `PaymentTransaction`**; así sabemos qué pago corresponde a qué compra. |
+| **Webhook** | Endpoint **del backend** al que **MP llama** para avisar "hubo novedades en un pago". Es la única fuente confiable para acreditar. |
+| **`notification_url`** | URL **pública** del webhook, enviada dentro de la preferencia. Sin ella, MP no sabe a dónde avisar. |
+| **`back_urls`** | Páginas **del frontend** a las que MP devuelve al usuario al terminar (`success`, `failure`, `pending`). |
+| **Cuentas de prueba** | Usuarios ficticios de MP (vendedor y comprador) para simular pagos sin dinero real. |
+| **Túnel (ngrok)** | Da una URL pública que apunta a tu `localhost`. Solo hace falta en desarrollo, porque MP no puede llegar a `localhost`. |
+
+**Por qué el webhook es imprescindible:** cuando el usuario vuelve del pago *no se puede confiar* en lo que dice la URL de retorno (`?status=approved` lo puede escribir cualquiera, y el usuario puede cerrar la pestaña antes de volver). Por eso MP avisa **de servidor a servidor** y el backend **verifica el pago directamente con MP** antes de acreditar.
+
+---
+
+## 3. Flujo completo
+
+```mermaid
+sequenceDiagram
+    participant F as Front (Angular)
+    participant B as Backend (Django)
+    participant MP as Mercado Pago
+
+    F->>B: GET /api/billing/packages/
+    B-->>F: lista de paquetes
+    F->>B: POST /api/billing/checkout/ {paquete_id}
+    B->>B: crea transacción 'pendiente'
+    B->>MP: crea preferencia (external_reference, notification_url, back_urls)
+    MP-->>B: preference_id + init_point
+    B-->>F: 201 {init_point}
+    F->>MP: redirige al usuario a init_point
+    Note over MP: El usuario paga en la página de Mercado Pago
+    MP->>B: POST /api/billing/webhook/ (aviso)
+    B->>MP: GET pago (verifica estado, monto y moneda reales)
+    B->>B: transacción 'aprobado' + suma créditos (atómico, idempotente)
+    MP-->>F: devuelve al usuario a la back_url (success/pending/failure)
+    F->>B: GET /api/billing/balance/ (cada 3 s hasta que suba)
+    B-->>F: saldo actualizado
+```
+
+> **Importante:** el aviso del webhook y el regreso del usuario pueden ocurrir **en cualquier orden**. Por eso, al volver, el front **consulta el saldo repetidamente** y no afirma "acreditado" por sí solo.
+
+---
+
+## 4. Endpoints (entrada y salida)
+
+Todos cuelgan de `/api/` (lo define `config/urls.py`). Salvo el webhook, **requieren JWT**: `Authorization: Bearer <access_token>`.
+
+| Método | Ruta | Para qué | Auth | Lo usa |
+|---|---|---|---|---|
+| `GET` | `/api/billing/packages/` | Listar paquetes | JWT | Front |
+| `POST` | `/api/billing/checkout/` | Iniciar el pago de un paquete | JWT | Front |
+| `GET` | `/api/billing/balance/` | Consultar saldo | JWT | Front |
+| `POST` | `/api/billing/webhook/` | Recibir avisos de Mercado Pago | **Ninguna** | **Solo Mercado Pago** |
+
+### 4.1 `GET /api/billing/packages/`
+
+Catálogo de paquetes, ordenado de menor a mayor precio. **Sin paginar** (son pocos).
+
+- **Request:** sin body ni parámetros.
+- **Respuesta `200 OK`:**
+
+```json
+[
+  { "id": 1, "nombre": "Básico",   "cantidad_creditos": 100,  "precio": "1000.00" },
+  { "id": 2, "nombre": "Estándar", "cantidad_creditos": 500,  "precio": "4000.00" },
+  { "id": 3, "nombre": "Pro",      "cantidad_creditos": 1000, "precio": "7000.00" }
+]
+```
+
+| Campo | Tipo | Descripción |
 |---|---|---|
-| `CreditPackage` | `paquetes_credito` | Catálogo de paquetes de créditos que un usuario puede comprar |
-| `PaymentTransaction` | `transacciones_pagos` | Un registro por cada intento de pago de un usuario por un paquete |
-| `EstadoTransaccion` | (no es tabla) | Lista de estados válidos de un pago |
+| `id` | entero | Es el `paquete_id` que se envía al checkout |
+| `nombre` | string | Nombre para mostrar |
+| `cantidad_creditos` | entero | Créditos que se acreditan al pagar |
+| `precio` | **string** decimal | **Llega como texto** (`"1000.00"`), no como número. Convertir con `Number()` solo para mostrar. Moneda: ARS |
 
-Archivos involucrados:
+- **Errores:** `401` si falta el token o venció.
 
-| Archivo | Entrega | Qué hace |
+### 4.2 `POST /api/billing/checkout/`
+
+Inicia el pago: crea la preferencia en MP, registra la transacción `pendiente` y devuelve la URL de pago.
+
+- **Content-Type:** `application/json`
+- **Request (body):**
+
+```json
+{ "paquete_id": 1 }
+```
+
+| Campo | Tipo | Obligatorio | Regla |
+|---|---|---|---|
+| `paquete_id` | entero | Sí | Entre 1 y 2147483647. Debe ser el `id` de un paquete existente |
+
+> **No enviar** monto, usuario ni nada más. El precio sale **siempre** del paquete en la base de datos y el usuario sale del token.
+
+- **Respuesta `201 Created`:**
+
+```json
+{
+  "init_point": "https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=3758943952-7ab06e45-..."
+}
+```
+
+El front debe **redirigir** a esa URL: `window.location.href = init_point` (es una navegación completa, no una llamada HTTP).
+
+- **Errores:**
+
+| Código | Cuándo | Cuerpo de ejemplo | Qué hacer en el front |
+|---|---|---|---|
+| `400` | Falta `paquete_id`, no es entero o es menor a 1 | `{"paquete_id": ["This field is required."]}` | Es un bug del front; mostrar error genérico |
+| `400` | Paquete con precio 0 (no comprable) | `{"detail": "El paquete de créditos seleccionado no se puede comprar."}` | Mostrar el mensaje |
+| `401` | Sin token o token vencido | `{"detail": "Authentication credentials were not provided."}` | Refrescar token o ir a login |
+| `404` | El paquete no existe | `{"detail": "El paquete de créditos solicitado no existe."}` | Recargar el listado de paquetes |
+| `502` | MP rechazó el pedido o respondió algo inválido | `{"detail": "La pasarela de pagos devolvió una respuesta inesperada. ..."}` | "No pudimos iniciar el pago, reintentá" |
+| `503` | MP caído, tardó más de 10 s, o el servidor no tiene credenciales | `{"detail": "La pasarela de pagos no está disponible en este momento. ..."}` | Igual que 502; se puede reintentar |
+
+**Reglas para el front:**
+- **Decidir por el código HTTP, no por el texto del mensaje** (mezclan español e inglés y pueden cambiar).
+- **Deshabilitar el botón "Comprar" mientras la petición está en curso.** Cada `201` crea una transacción `pendiente` nueva: un doble clic genera dos.
+
+### 4.3 `GET /api/billing/balance/`
+
+- **Request:** sin body ni parámetros (el usuario sale del token).
+- **Respuesta `200 OK`:**
+
+```json
+{ "credits_available": 1100, "last_updated": "2026-10-12T06:10:20.123456Z" }
+```
+
+| Campo | Tipo | Descripción |
 |---|---|---|
-| `apps/billing/models.py` | tk083 | Modelos `CreditPackage`, `PaymentTransaction` y `EstadoTransaccion` |
-| `apps/billing/migrations/0002_creditpackage_paymenttransaction.py` | tk083 | Crea las tablas y constraints |
-| `infrastructure/mercadopago_client.py` | tk084 | Adaptador de Mercado Pago: crea la preferencia de pago y traduce los errores. Es el **único** archivo que conoce Mercado Pago |
-| `apps/billing/services.py` | tk084 | `BillingService.create_checkout` (lógica del checkout) y errores de negocio |
-| `apps/billing/serializers.py` | tk084 | `CheckoutRequestSerializer`: valida el body |
-| `apps/billing/views.py` | tk084 | `BillingCheckoutView`: recibe el request y responde `201` |
-| `apps/billing/urls.py` | tk084 | Ruta `billing/checkout/` |
-| `apps/billing/test_checkout.py` | tk084 | 23 tests del checkout y del cliente de Mercado Pago |
-| `.env.example` | tk084 | Documenta las variables `MERCADOPAGO_*` (sin valores reales) |
+| `credits_available` | entero ≥ 0 | Créditos disponibles |
+| `last_updated` | string ISO 8601 | Última modificación del saldo (UTC). Convertir a `Date` para formatear |
 
-El módulo `billing` ya contenía, antes de estas entregas, el modelo `CreditBalance` (saldo de créditos del usuario), `get_balance`, `deduct_credits` y el endpoint de saldo. **No se modificaron.**
+- Si el usuario no tiene saldo creado, lo crea en ese momento con 0 créditos (nunca devuelve 404).
+- Los campos llegan en `snake_case`. Es solo lectura.
+- Errores: `401` sin token válido.
 
-### Qué NO incluye
+### 4.4 `POST /api/billing/webhook/` (solo para Mercado Pago)
 
-- Un endpoint para **listar** paquetes: no existe, y por ahora la tabla `paquetes_credito` no se carga desde ninguna API.
-- Procesamiento de webhooks de Mercado Pago.
-- Lógica para acreditar créditos al saldo del usuario cuando un pago se aprueba.
-- Cambios de estado de una transacción: el checkout solo la crea en `pendiente`.
+**El front NO usa este endpoint.** Se documenta para entender el sistema y para depurar.
 
-Según el cronograma del proyecto, el webhook de Mercado Pago corresponde a una tarea posterior (US-08, US-09 y US-10).
+- **Autenticación:** ninguna (lo llama MP). La seguridad no depende de quién llama, sino de que el backend **verifica el pago con MP** (sección 7).
+- **Qué recibe.** MP envía el tipo y el id en cualquiera de estos formatos (todos soportados):
 
-El checkout (`POST /api/billing/checkout/`) sí está implementado: ver sección 7.
+| Formato | Ejemplo |
+|---|---|
+| Query moderna | `?type=payment&data.id=123456` |
+| Body JSON | `{"type": "payment", "data": {"id": "123456"}}` |
+| IPN por query | `?topic=payment&id=123456` o `?topic=merchant_order&id=987` |
+| IPN por body | `{"topic": "merchant_order", "resource": "https://api.mercadolibre.com/merchant_orders/987"}` |
 
-## 2. Relaciones
+- **Tipos que procesa:**
+
+| Tipo | El `id` es… | Qué hace |
+|---|---|---|
+| `payment` | ID del pago | Verifica ese pago y lo acredita si corresponde |
+| `merchant_order` | ID de la orden | Consulta la orden, obtiene sus pagos y verifica cada uno |
+| cualquier otro | — | Se ignora (`200`) |
+
+- **Respuestas:**
+
+| Código | Cuándo | ¿MP reintenta? |
+|---|---|---|
+| `200 {"detail": "OK"}` | Procesado, ya procesado antes, o ignorado por su estado | No |
+| `200 {"detail": "Notificación ignorada."}` | Tipo de aviso que no nos interesa | No |
+| `400` | El id no es numérico | Sí |
+| `404` | MP no conoce ese pago/orden (a veces tarda en estar disponible) | Sí |
+| `502` / `503` | MP respondió mal o está caído al verificar | Sí (es lo que queremos) |
+
+---
+
+## 5. Guía para el frontend (Angular), paso a paso
+
+El proyecto `pintaebook-front-tester` **ya tiene todo implementado y funcionando**: se puede copiar tal cual. Archivos de referencia:
+
+| Archivo | Para qué |
+|---|---|
+| `src/app/core/services/billing.service.ts` | Servicio HTTP: `getBalance()`, `getPackages()`, `createCheckout()` |
+| `src/app/features/billing/packages.component.ts` | Pantalla de paquetes y botón "Comprar" |
+| `src/app/features/billing/payment-result.component.ts` | Pantalla de retorno con consulta del saldo |
+| `src/app/app.routes.ts` | Rutas `/billing` y `/billing/result/:outcome` |
+
+### Paso 1 — El servicio
+
+```ts
+export interface CreditPackage {
+  id: number;
+  nombre: string;
+  cantidad_creditos: number;
+  precio: string; // "1000.00": llega como string
+}
+
+@Injectable({ providedIn: 'root' })
+export class BillingService {
+  private readonly http = inject(HttpClient);
+  private readonly BASE = 'http://localhost:8000/api/billing';
+
+  getBalance()  { return this.http.get<Balance>(`${this.BASE}/balance/`); }
+  getPackages() { return this.http.get<CreditPackage[]>(`${this.BASE}/packages/`); }
+  createCheckout(paqueteId: number) {
+    return this.http.post<{ init_point: string }>(`${this.BASE}/checkout/`, { paquete_id: paqueteId });
+  }
+}
+```
+
+El interceptor JWT existente (`jwt.interceptor.ts`) agrega el header `Authorization` solo.
+
+### Paso 2 — Mostrar los paquetes
+
+Llamar a `getPackages()` al cargar la pantalla y pintar una tarjeta por paquete con `nombre`, `cantidad_creditos` y `precio` (formateado con `Number(precio)`).
+
+### Paso 3 — Botón "Comprar" → checkout → redirección
+
+```ts
+buy(pkg: CreditPackage) {
+  if (this.buyingId() !== null) return;           // evita el doble clic
+  this.buyingId.set(pkg.id);
+  sessionStorage.setItem('balance_before_checkout', String(this.balance())); // para la pantalla de retorno
+
+  this.billing.createCheckout(pkg.id).subscribe({
+    next: ({ init_point }) => { window.location.href = init_point; },   // sale a Mercado Pago
+    error: (err) => { this.buyingId.set(null); /* mostrar error según err.status */ },
+  });
+}
+```
+
+### Paso 4 — Pantallas de retorno
+
+MP devuelve al usuario a una de **tres URLs** (las define el backend en `MERCADOPAGO_BACK_URL_*`, sección 8). El front debe tener una ruta para cada una (en el tester, una sola ruta con parámetro):
+
+| URL de retorno | Significado | Qué mostrar |
+|---|---|---|
+| `/billing/result/success` | El pago se aprobó en MP | "Confirmando tu pago..." y consultar el saldo (paso 5) |
+| `/billing/result/pending` | Pago pendiente (por ejemplo, efectivo) | "Se acreditará cuando se confirme" |
+| `/billing/result/failure` | Pago rechazado o cancelado | "No se completó. Podés reintentar" |
+
+### Paso 5 — Confirmar con el saldo (polling)
+
+En `success`, **no afirmar que se acreditó**: el webhook puede no haber llegado todavía.
+
+1. Antes de pagar se guardó el saldo previo (paso 3).
+2. En la pantalla de retorno, consultar `GET /api/billing/balance/` **cada 3 segundos, máximo ~30 s**.
+3. Si `credits_available` **superó** el saldo previo → "¡Créditos acreditados!".
+4. Si se agota el tiempo → "Tu pago se está procesando, el saldo se actualizará en unos minutos". **No es un error**: MP reintenta el aviso.
+
+### Qué NO hacer
+
+- ❌ **Llamar al webhook.** Lo llama MP.
+- ❌ **Confiar en los parámetros de la URL de retorno** (`status=approved`, `payment_id`...): cualquiera los puede escribir a mano.
+- ❌ **Sumar créditos en el cliente** al volver del pago.
+- ❌ **Enviar el precio** al checkout.
+- ❌ **Permitir doble clic** en "Comprar".
+
+### Orden recomendado del flujo de usuario (para probar)
+
+1. Iniciar sesión en la app.
+2. Ir a **Comprar créditos** (`/billing`).
+3. Elegir un paquete y pulsar **Comprar**.
+4. En Mercado Pago, iniciar sesión con el **usuario comprador de prueba** y pagar con tarjeta de prueba (sección 6).
+5. Volver a la app (`/billing/result/success`) y ver el saldo actualizado.
+
+---
+
+## 6. Cómo pagar en modo prueba (qué hace el usuario)
+
+El proyecto usa **cuentas de prueba** de Mercado Pago. Ninguna operación mueve dinero real.
+
+### Cuentas involucradas
+
+| Cuenta | Para qué | Dónde se usa |
+|---|---|---|
+| **Cuenta personal de MP** (la del desarrollador) | Entrar a Mercado Pago Developers y administrar la aplicación y las cuentas de prueba | Solo administración |
+| **Vendedor de prueba** | Representa a PintaEbook. De acá sale el **Access Token** del backend | Variable `MERCADOPAGO_ACCESS_TOKEN` |
+| **Comprador de prueba** | Representa al usuario que paga | Se usa en la página de pago de MP |
+
+> El usuario/contraseña del comprador de prueba los muestra el panel de MP, en la sección **Cuentas de prueba** de la aplicación. Se pueden crear hasta 15 y no se pueden borrar.
+
+### Pasos al pagar
+
+1. Pulsar **Comprar** en la app: se abre la página de pago de Mercado Pago.
+2. **Iniciar sesión con el usuario comprador de prueba** (nunca con la cuenta real ni con la del vendedor: una cuenta no puede pagarse a sí misma).
+3. Elegir **tarjeta de crédito** y completar con una tarjeta de prueba (tabla de abajo).
+4. Completar **todos** los campos, incluyendo **cuotas**.
+5. Pulsar **Pagar**.
+6. Volver a la app (botón "Volver al sitio" o redirección automática, según el entorno) y verificar el saldo.
+
+### Tarjetas de prueba (Argentina)
+
+| Dato | Valor |
+|---|---|
+| Mastercard | `5031 7557 3453 0604` |
+| Visa | `4509 9535 6623 3704` |
+| Vencimiento | `11/30` |
+| CVV | `123` |
+| **Titular `APRO`** | El pago se **aprueba** |
+| Titular `OTHE` | Rechazado por error general |
+| Titular `CONT` | Queda **pendiente** |
+| Tipo y número de documento | DNI `12345678` |
+
+> Verificar los datos vigentes en la [documentación oficial de tarjetas de prueba](https://www.mercadopago.com.ar/developers/es/docs/checkout-pro/test-cards): Mercado Pago puede cambiarlos.
+
+### Si el botón "Pagar" queda gris
+
+Es el problema más frecuente y **no es del backend**. Probar, en orden:
+
+1. Abrir el link en una **ventana de incógnito** (las extensiones que bloquean scripts —uBlock, AdBlock, Brave Shields— deshabilitan el botón).
+2. Cerrar sesión de MP e iniciar con el **comprador de prueba**.
+3. Revisar que todos los campos estén completos, **incluidas las cuotas**.
+
+---
+
+## 7. Cómo funciona el webhook por dentro
+
+### Los pasos
+
+1. **Llega el aviso.** Se extrae solo el tipo y el ID (validado como numérico: termina en una URL hacia MP). El resto del contenido **no se usa**.
+2. Si es `merchant_order`, se consulta la orden y se obtienen los IDs de sus pagos. Cada pago sigue el mismo camino.
+3. **Se consulta a MP** el pago real (`GET /v1/payments/{id}`): estado, monto, moneda y `external_reference`.
+4. **Se busca la transacción** con el `external_reference` (ID de nuestra `PaymentTransaction`).
+5. **Dentro de una transacción de base de datos** se bloquea esa fila (`select_for_update`) y se decide:
+
+| Situación | Resultado |
+|---|---|
+| Ya estaba `aprobado` | No se hace nada (idempotencia) |
+| MP dice `approved` y monto y moneda coinciden | Transacción `aprobado` + se suman los créditos |
+| MP dice `approved` pero monto o moneda no coinciden | **No se acredita**; error en logs; requiere revisión manual |
+| MP dice `rejected` / `cancelled` y estaba `pendiente` | Pasa a `fallido` / `cancelado` |
+| `pending`, `in_process`, otros | Sin cambios |
+| `external_reference` no numérico o transacción inexistente | Se ignora y queda un warning en logs |
+
+La consulta a MP se hace **fuera** de la transacción de base de datos, para no mantener filas bloqueadas mientras se espera la red.
+
+### Por qué se procesa también `merchant_order`
+
+En las pruebas reales, Mercado Pago avisó **solo de la orden** (`merchant_order`) y no del pago (`payment`). Si el webhook solo atendiera `payment`, el pago quedaría aprobado en MP pero **sin acreditar** en nuestro sistema. Por eso ambos tipos llevan al mismo procesamiento verificado.
+
+### Idempotencia y concurrencia
+
+MP puede enviar el mismo aviso varias veces, a veces casi a la vez (y puede avisar tanto de la orden como del pago). El bloqueo de fila dentro de una transacción atómica garantiza que se acredite **una sola vez**: el segundo aviso espera y, al entrar, encuentra la transacción ya `aprobado`.
+
+### Seguridad
+
+- El endpoint es público, así que **nunca se confía en el contenido recibido**: solo se toma un ID numérico y el estado real se obtiene de MP con nuestro token.
+- El monto lo decide el backend (tomado del paquete) y se compara con lo que MP dice que cobró.
+- Mejora futura: validar la cabecera `x-signature` de MP (firma HMAC) para descartar llamadas que no vienen de MP antes de consultar su API.
+
+---
+
+## 8. Configuración: variables de entorno
+
+Se definen en `Pintaebook_backend/.env` (modelo en `.env.example`). **El `.env` está en `.gitignore`: nunca subir tokens al repositorio.**
+
+| Variable | Obligatoria | Para qué sirve | Ejemplo en desarrollo |
+|---|---|---|---|
+| `MERCADOPAGO_ACCESS_TOKEN` | **Sí** | Credencial de la API (Access Token del **vendedor de prueba**, empieza con `APP_USR-`) | `APP_USR-...` |
+| `MERCADOPAGO_NOTIFICATION_URL` | **Sí** | URL **pública** del webhook. Sin ella no se acreditan créditos | `https://xxxx.ngrok-free.dev/api/billing/webhook/` |
+| `MERCADOPAGO_BACK_URL_SUCCESS` | Recomendada | Pantalla del front a la que vuelve el usuario si el pago se aprobó | `http://localhost:4200/billing/result/success` |
+| `MERCADOPAGO_BACK_URL_FAILURE` | Recomendada | Ídem si el pago falló | `http://localhost:4200/billing/result/failure` |
+| `MERCADOPAGO_BACK_URL_PENDING` | Recomendada | Ídem si el pago quedó pendiente | `http://localhost:4200/billing/result/pending` |
+| `MERCADOPAGO_SANDBOX` | No | `True` usa el `sandbox_init_point`. **Con credenciales de cuenta de prueba dejar en `False`** (ver nota) | `False` |
+| `MERCADOPAGO_MOCK_MODE` | No | `True` simula el checkout sin llamar a MP (solo desarrollo y tests). **En producción, `False`** | `False` |
+| `MERCADOPAGO_BASE_URL` | No | URL base de la API de MP | `https://api.mercadopago.com` (por defecto) |
+| `ALLOWED_HOSTS` | **Sí** | Dominios que Django acepta, separados por coma. **Debe incluir el dominio del túnel/producción** o el webhook da `400` | `localhost,127.0.0.1,xxxx.ngrok-free.dev` |
+| `CORS_ALLOWED_ORIGINS` | En producción | Orígenes del front permitidos (por defecto `localhost:4200` y `127.0.0.1:4200`) | `https://mi-front.com` |
+
+### Notas importantes
+
+- **`MERCADOPAGO_SANDBOX`:** según la documentación de MP, las credenciales de una cuenta de prueba ya funcionan como credenciales de prueba con el `init_point` normal. El `sandbox_init_point` fue la causa probable de que el botón "Pagar" no se habilitara en las primeras pruebas.
+- **`auto_return`:** el backend solo lo envía si la `back_url` de éxito es **`https://`**. Con `http://localhost`, MP rechaza la preferencia (`auto_return invalid`). En desarrollo el usuario vuelve con el botón "Volver al sitio" de MP; en producción, con `https`, vuelve solo.
+- **`back_urls` con `localhost`:** MP puede ignorarlas (en las pruebas quedaron vacías en la preferencia). No afecta el cobro ni el webhook; solo la vuelta automática. Para probar la pantalla de retorno en local, abrir a mano `http://localhost:4200/billing/result/success`.
+- **Usar el mismo origen en el front y en las `back_urls`** (`localhost` o `127.0.0.1`, no mezclar): el token JWT está en `localStorage`, que es **por origen**; si MP devolviera a otro origen, el usuario aparecería deslogueado.
+- **Cambios en el `.env`:** Django lee el `.env` al arrancar. Después de editarlo: `docker compose restart web`.
+- **Cambios en el código Python:** Daphne **no recarga solo**. Si una ruta nueva da 404 o un cambio no se refleja: `docker compose restart web`.
+- **La URL de ngrok gratuita cambia** cada vez que se reinicia ngrok: hay que actualizar `MERCADOPAGO_NOTIFICATION_URL` y `ALLOWED_HOSTS` y reiniciar `web`.
+
+### Desarrollo local: puesta en marcha del túnel
+
+1. Instalar ngrok (`winget install ngrok.ngrok`) y registrar el authtoken (`ngrok config add-authtoken <TOKEN>`; el authtoken es secreto).
+2. Abrir el túnel en una terminal aparte y dejarla abierta: `ngrok http 8000`.
+3. Copiar la URL `https://....ngrok-free.dev` que muestra y completar `MERCADOPAGO_NOTIFICATION_URL` (con `/api/billing/webhook/` al final) y `ALLOWED_HOSTS`.
+4. `docker compose restart web`.
+5. Verificar: abrir `https://TU-URL.ngrok-free.dev/api/billing/balance/` → debe responder `401 Authentication credentials were not provided` (significa que llegó a Django).
+6. El inspector `http://127.0.0.1:4040` muestra cada llamada que MP hace al webhook.
+
+---
+
+## 9. Datos: tablas, estados y reglas
+
+### Tablas
+
+| Entidad Django | Tabla | Para qué sirve |
+|---|---|---|
+| `CreditBalance` | `balances_credito` | Saldo de créditos del usuario (uno por usuario) |
+| `CreditPackage` | `paquetes_credito` | Catálogo de paquetes que se pueden comprar |
+| `PaymentTransaction` | `transacciones_pagos` | Un registro por cada intento de pago |
 
 ```mermaid
 erDiagram
@@ -74,369 +454,183 @@ erDiagram
     USUARIOS ||--o| BALANCES_CREDITO : "posee"
 ```
 
-- Un usuario puede tener muchas transacciones (puede comprar múltiples paquetes).
-- Cada transacción pertenece a un único paquete y a un único usuario.
-- Un usuario tiene un único saldo (`balances_credito`).
+#### `paquetes_credito`
 
-## 3. Tablas
-
-### 3.1 `paquetes_credito` (`CreditPackage`)
-
-| Columna | Tipo PostgreSQL | Restricciones |
+| Columna | Tipo | Restricciones |
 |---|---|---|
-| `id` | `integer` (identity, 32 bits) | PK |
-| `nombre` | `varchar(100)` | NOT NULL, UNIQUE |
-| `cantidad_creditos` | `integer` | NOT NULL, CHECK `> 0` |
-| `precio` | `numeric(10,2)` | NOT NULL, CHECK `>= 0` |
+| `id` | integer (32 bits) | PK |
+| `nombre` | varchar(100) | NOT NULL, UNIQUE |
+| `cantidad_creditos` | integer | NOT NULL, CHECK `> 0` |
+| `precio` | numeric(10,2) | NOT NULL, CHECK `>= 0` |
 
-### 3.2 `transacciones_pagos` (`PaymentTransaction`)
+#### `transacciones_pagos`
 
-| Columna | Tipo PostgreSQL | Restricciones |
+| Columna | Tipo | Restricciones |
 |---|---|---|
-| `id` | `integer` (identity, 32 bits) | PK |
-| `usuario_id` | `uuid` | NOT NULL, FK a `usuarios.id` |
-| `paquete_id` | `integer` | NOT NULL, FK a `paquetes_credito.id` |
-| `id_transaccion_externa` | `varchar(255)` | NOT NULL, UNIQUE |
-| `monto` | `numeric(10,2)` | NOT NULL, CHECK `> 0` |
-| `estado_transaccion` | `varchar(50)` | NOT NULL, CHECK IN (ver sección 4) |
-| `fecha` | `timestamptz` | NOT NULL, DEFAULT `statement_timestamp()` |
+| `id` | integer (32 bits) | PK. Es el `external_reference` que se envía a MP |
+| `usuario_id` | uuid | NOT NULL, FK a usuarios (CASCADE) |
+| `paquete_id` | integer | NOT NULL, FK a paquetes (PROTECT) |
+| `id_transaccion_externa` | varchar(255) | NOT NULL, UNIQUE. Guarda el ID de la **preferencia** de MP |
+| `monto` | numeric(10,2) | NOT NULL, CHECK `> 0`. Lo cobrado (snapshot del precio) |
+| `estado_transaccion` | varchar(50) | NOT NULL, CHECK IN (ver abajo) |
+| `fecha` | timestamptz | NOT NULL, la completa PostgreSQL |
 
-Notas sobre campos:
-
-- **`id_transaccion_externa`**: identificador del pago en la pasarela (Mercado Pago). Es UNIQUE para que no se pueda registrar dos veces el mismo pago si el webhook llega repetido.
-- **`monto`**: lo que realmente se cobró. Se guarda aparte del `precio` del paquete para que el historial no cambie si luego se modifica el precio.
-- **`fecha`**: la completa PostgreSQL automáticamente; no hay que enviarla al crear una transacción.
-
-### 3.3 `balances_credito` (`CreditBalance`) — ya existente
+#### `balances_credito`
 
 | Columna | Tipo | Detalle |
 |---|---|---|
-| `id` | `uuid` | PK |
-| `usuario_id` | `uuid` | Relación uno a uno con el usuario |
-| `credits_available` | entero, no negativo | Créditos disponibles. El campo vale `0` por defecto, pero al crearse un usuario una signal (`apps/billing/signals.py`) le crea el saldo con `INITIAL_WELCOME_CREDITS` (hoy `1000`) |
-| `last_updated` | `timestamptz` | Se actualiza automáticamente en cada modificación |
+| `id` | uuid | PK |
+| `usuario_id` | uuid | Relación uno a uno con el usuario |
+| `credits_available` | entero ≥ 0 | Créditos disponibles. Al crearse un usuario, una signal (`signals.py`) le da `INITIAL_WELCOME_CREDITS` (hoy **1000**) |
+| `last_updated` | timestamptz | Se actualiza en cada modificación |
 
-Es el modelo que expone el endpoint de la sección 7.
+### Estados de una transacción
 
-## 4. Estados de una transacción
-
-Valores válidos de `estado_transaccion` (clase `EstadoTransaccion`):
-
-| Valor guardado | Significado previsto |
+| Estado | Significado |
 |---|---|
-| `pendiente` | Pago iniciado, todavía sin resultado |
-| `aprobado` | Pago confirmado |
-| `fallido` | Pago que no se pudo completar |
-| `reembolsado` | Pago devuelto al usuario |
-| `cancelado` | Pago cancelado |
+| `pendiente` | Se inició el checkout; esperando el resultado del pago |
+| `aprobado` | Pago confirmado y créditos acreditados. Estado final |
+| `fallido` | El pago fue rechazado, o MP falló al crear la preferencia |
+| `cancelado` | El pago fue cancelado |
+| `reembolsado` | Reservado; hoy los reembolsos no se procesan |
 
-> El significado es provisorio. Las transiciones permitidas entre estados y el momento en que se acreditan créditos se definirán en la tarea de integración de pagos; **no están implementadas en esta entrega**.
+Un pago rechazado **no** bloquea un intento posterior: el usuario puede reintentar sobre la misma preferencia y, si se aprueba, se acredita.
 
-## 5. Reglas de integridad
-
-Las reglas están definidas **en la base de datos**, no solo en Python. Si se intenta guardar un dato inválido (desde el ORM, el shell o SQL directo), PostgreSQL lo rechaza y Django lanza `IntegrityError`.
+### Reglas de integridad (definidas en la base de datos)
 
 | Regla | Constraint |
 |---|---|
-| Un paquete tiene cantidad de créditos mayor a 0 | `paquete_cantidad_creditos_positiva` |
-| El precio de un paquete no es negativo | `paquete_precio_no_negativo` |
-| El monto de una transacción es mayor a 0 | `transaccion_monto_positivo` |
-| El estado es uno de los 5 valores válidos | `transaccion_estado_valido` |
-| No hay dos paquetes con el mismo nombre | `UNIQUE (nombre)` |
-| No se registra dos veces el mismo pago externo | `UNIQUE (id_transaccion_externa)` |
-
-### Qué pasa al borrar
+| Paquete con créditos > 0 | `paquete_cantidad_creditos_positiva` |
+| Precio de paquete no negativo | `paquete_precio_no_negativo` |
+| Monto de transacción > 0 | `transaccion_monto_positivo` |
+| Estado válido (uno de los 5) | `transaccion_estado_valido` |
+| Nombre de paquete único | `UNIQUE (nombre)` |
+| Pago externo no repetido | `UNIQUE (id_transaccion_externa)` |
 
 | Acción | Resultado |
 |---|---|
-| Borrar un **usuario** | Se borran también sus transacciones (`on_delete=CASCADE`) |
-| Borrar un **paquete** con transacciones asociadas | No se permite (`on_delete=PROTECT`, Django lanza `ProtectedError`) |
+| Borrar un **usuario** | Se borran sus transacciones (`CASCADE`) |
+| Borrar un **paquete** con transacciones | No se permite (`PROTECT`) |
 
-Estas dos reglas las aplica el ORM de Django. En la base, las FK están declaradas como `DEFERRABLE INITIALLY DEFERRED` (se verifican al hacer commit) y sin cláusula `ON DELETE`.
+---
 
-## 6. Cómo usarlo desde código (backend)
+## 10. Cómo probar y verificar
 
-```python
-from apps.billing.models import CreditPackage, PaymentTransaction, EstadoTransaccion
-
-paquete = CreditPackage.objects.get(nombre="...")
-
-PaymentTransaction.objects.create(
-    usuario=usuario,
-    paquete=paquete,
-    id_transaccion_externa="id-del-pago-en-la-pasarela",
-    monto=paquete.precio,
-    estado_transaccion=EstadoTransaccion.PENDIENTE,
-)
-```
-
-- Usar siempre `EstadoTransaccion.<ESTADO>` en lugar de strings sueltos.
-- No se envía `fecha`: la completa la base.
-- Desde un usuario se accede a sus pagos con `usuario.payment_transactions`, y desde un paquete con `paquete.payment_transactions`.
-
-### Iniciar un checkout desde el backend
-
-No hace falta crear la transacción a mano: el servicio hace todo el flujo (leer el paquete, crear la preferencia en Mercado Pago y registrar la transacción `pendiente`).
-
-```python
-from apps.billing.services import BillingService
-
-resultado = BillingService.create_checkout(user=request.user, paquete_id=4)
-# {'init_point': 'https://...'}
-```
-
-Orden de lo que hace `create_checkout`:
-
-1. Busca el paquete. Si no existe lanza `CreditPackageNotFoundError` (404). Si su precio es 0 lanza `CreditPackageNotPurchasableError` (400).
-2. Llama a Mercado Pago (`create_preference`) con el nombre y el precio **del paquete en la base**. Si falla lanza `PaymentGatewayUnavailableError` (503) o `PaymentGatewayError` (502).
-3. Recién entonces inserta la `PaymentTransaction` en `pendiente`, con el ID de la preferencia en `id_transaccion_externa`.
-
-`create_checkout` acepta un parámetro opcional `gateway=` para inyectar otro cliente de pagos (útil en tests). Si no se pasa, usa `MercadoPagoClient()`.
-
-## 7. Endpoints
-
-### Estado actual
-
-| Entidad | Endpoints |
-|---|---|
-| `CreditPackage` (paquetes) | **Ninguno para listarlos.** El checkout solo recibe un `paquete_id` |
-| `PaymentTransaction` (pagos) | `POST /api/billing/checkout/` (crea la transacción pendiente, ver abajo). **Sin endpoint de consulta ni webhook todavía** |
-| `CreditBalance` (saldo) | `GET /api/billing/balance/` (existente, ver abajo) |
-
-Para el equipo de frontend: **no existe un endpoint que liste los paquetes**, así que hoy el `paquete_id` hay que conocerlo de antemano. No construir servicios de Angular para listar paquetes ni para consultar pagos hasta que se documenten acá.
-
-### `GET /api/billing/balance/`
-
-Devuelve el saldo de créditos del usuario autenticado. La implementación de Angular (servicio, manejo de errores) está en el **Paso A: Consultar Saldo** de `workflow_ebooks_guia_actual.md`; esta ficha resume el contrato verificado en el código.
-
-| Campo | Detalle |
-|---|---|
-| Método y ruta | `GET /api/billing/balance/` (el prefijo `/api/` lo define `config/urls.py`) |
-| Autenticación | Obligatoria. Enviar el token de acceso en el header `Authorization` (formato exacto en el Paso A de la guía de e-books) |
-| Request | **Sin body y sin parámetros.** El usuario se identifica por el token; no se envía ningún id |
-| Respuesta exitosa | `200 OK` con el JSON de abajo |
-| Sin autenticación válida | La API rechaza la petición (código 401 o 403 de Django REST Framework, según la configuración de autenticación) |
-
-**Respuesta `200 OK`:**
-
-```json
-{
-  "credits_available": 0,
-  "last_updated": "2026-10-07T16:50:00.123456Z"
-}
-```
-
-| Campo | Tipo | Descripción |
-|---|---|---|
-| `credits_available` | número entero, mayor o igual a 0 | Créditos disponibles del usuario |
-| `last_updated` | string, fecha y hora en formato ISO 8601 | Última vez que se modificó el saldo. La zona horaria depende de la configuración del proyecto |
-
-**Comportamiento a tener en cuenta:**
-
-- Si el usuario todavía no tiene saldo, el endpoint **lo crea en ese momento con 0 créditos**. Nunca responde 404 por "usuario sin saldo".
-- Los nombres de los campos llegan tal cual, en `snake_case` (`credits_available`, no `creditsAvailable`).
-- La respuesta tiene **solo** esos dos campos: no incluye `id` ni datos del usuario.
-- `last_updated` llega como string; hay que convertirlo a `Date` si se quiere formatear.
-- Es **solo lectura**: el saldo no se modifica desde este endpoint.
-
-### `POST /api/billing/checkout/`
-
-Inicia el pago de un paquete de créditos: crea la preferencia de pago en Mercado Pago, registra la transacción en `transacciones_pagos` con estado `pendiente` y devuelve la URL de pago a la que el frontend debe redirigir al usuario.
-
-| Campo | Detalle |
-|---|---|
-| Método y ruta | `POST /api/billing/checkout/` |
-| Autenticación | Obligatoria. Header `Authorization: Bearer <access_token>` (JWT) |
-| Content-Type | `application/json` |
-| Respuesta exitosa | `201 Created` |
-
-**Request (body):**
-
-```json
-{ "paquete_id": 4 }
-```
-
-| Campo | Tipo | Obligatorio | Regla |
-|---|---|---|---|
-| `paquete_id` | entero | Sí | Mayor o igual a 1 y menor o igual a 2147483647. Es el `id` de un paquete existente |
-
-- **No enviar** `monto`, `usuario_id` ni ningún otro dato. El monto se toma siempre del paquete en la base de datos y el usuario sale del token. Los campos de más se ignoran.
-
-**Respuesta `201 Created`:**
-
-```json
-{
-  "init_point": "https://example.com/mock-checkout?pref_id=MOCK-39f07e667ee6421cba582f0b81c50e51"
-}
-```
-
-| Campo | Tipo | Descripción |
-|---|---|---|
-| `init_point` | string (URL) | Página de pago de Mercado Pago a la que hay que redirigir al usuario. En modo sandbox el backend ya devuelve la URL de sandbox: el frontend no tiene que distinguir |
-
-**Verificado con el sandbox real de Mercado Pago:** con credenciales de prueba y `MERCADOPAGO_SANDBOX=True`, el endpoint respondió `201` con una URL del tipo `https://sandbox.mercadopago.com.ar/checkout/v1/redirect?pref_id=<id_de_preferencia>`. La página de pago abrió y mostró el nombre y el monto del paquete (por ejemplo "Pack prueba", $ 9,99), iguales a los guardados en la base. La fila de `transacciones_pagos` quedó `pendiente` con ese mismo `pref_id` en `id_transaccion_externa`.
-
-**Errores:**
-
-| Código | Cuándo | Cuerpo de ejemplo | Verificado |
-|---|---|---|---|
-| `400` | Falta `paquete_id` | `{"paquete_id": ["This field is required."]}` | Prueba manual |
-| `400` | `paquete_id` no es un entero | `{"paquete_id": ["A valid integer is required."]}` | Prueba manual |
-| `400` | `paquete_id` menor a 1 | `{"paquete_id": ["Ensure this value is greater than or equal to 1."]}` | Prueba manual |
-| `400` | El paquete tiene precio 0 y no se puede comprar | `{"detail": "El paquete de créditos seleccionado no se puede comprar."}` | Tests automáticos |
-| `401` | Falta el token | `{"detail": "Authentication credentials were not provided."}` | Prueba manual |
-| `401` | Token inválido o vencido | El cuerpo puede variar | Comportamiento estándar del JWT, no probado manualmente |
-| `404` | El paquete no existe | `{"detail": "El paquete de créditos solicitado no existe."}` | Prueba manual |
-| `502` | Mercado Pago rechazó el pedido o respondió algo inválido | `{"detail": "La pasarela de pagos devolvió una respuesta inesperada. Intente nuevamente más tarde."}` | Tests automáticos |
-| `503` | Mercado Pago no responde, tardó demasiado o está caído (también si el servidor no tiene configuradas las credenciales) | `{"detail": "La pasarela de pagos no está disponible en este momento. Intente nuevamente más tarde."}` | Tests automáticos |
-
-**Qué tener en cuenta en el frontend:**
-
-- **Decidir por el código HTTP, no por el texto.** Los mensajes de error mezclan español e inglés (los de validación vienen en inglés por defecto) y pueden cambiar. Los errores de validación (`400`) traen el nombre del campo como clave; los demás traen `detail`.
-- **Redirigir con una navegación completa**, por ejemplo `window.location.href = respuesta.init_point`. No es una llamada HTTP más.
-- **Deshabilitar el botón mientras el request está en curso.** Cada respuesta `201` crea una transacción `pendiente` nueva: un doble clic genera dos.
-- **El backend espera hasta 10 segundos** a Mercado Pago antes de responder `503`.
-- **Pagar todavía no acredita créditos.** Como el webhook no existe, después del pago el saldo (`GET /api/billing/balance/`) no cambia y la transacción sigue `pendiente`. No mostrar al usuario "créditos acreditados" a partir de este endpoint.
-- **El usuario no vuelve solo a la aplicación.** Todavía no están configuradas las URLs de retorno (`back_urls`), así que al terminar de pagar se queda en Mercado Pago. Falta que el equipo de frontend defina esas URLs.
-- **Entornos de desarrollo:** con el modo mock activo, `init_point` apunta a una página de ejemplo (`example.com`) y no a Mercado Pago. Con credenciales de prueba y sandbox, apunta a `sandbox.mercadopago.com.ar`, y los pagos son ficticios (hay que pagar con la cuenta compradora de prueba, nunca con una cuenta real).
-
-**Ejemplo orientativo en Angular** (asume que el interceptor de autenticación ya agrega el header, como en el Paso A de la guía de e-books, y que la URL base de la API se define según el proyecto):
-
-```ts
-@Injectable({ providedIn: 'root' })
-export class BillingService {
-  private readonly baseUrl = '/api'; // reemplazar por la URL base real de la API
-
-  constructor(private http: HttpClient) {}
-
-  iniciarCheckout(paqueteId: number): Observable<{ init_point: string }> {
-    return this.http.post<{ init_point: string }>(
-      `${this.baseUrl}/billing/checkout/`,
-      { paquete_id: paqueteId }
-    );
-  }
-}
-```
-
-```ts
-this.billingService.iniciarCheckout(paqueteId).subscribe({
-  next: ({ init_point }) => { window.location.href = init_point; },
-  error: (err) => {
-    if (err.status === 502 || err.status === 503) {
-      // La pasarela no está disponible: pedir al usuario que reintente más tarde
-    }
-    // 400, 401 y 404: ver la tabla de errores
-  },
-});
-```
-
-### Plantilla para documentar endpoints nuevos
-
-Cuando se implementen endpoints de paquetes o pagos (listado de paquetes, creación de un pago, webhook de Mercado Pago, etc.), documentarlos con esta estructura:
-
-| Campo | Qué documentar |
-|---|---|
-| Método y ruta | Por ejemplo `GET /api/...` |
-| Autenticación | Si requiere token y de qué rol |
-| Request | Headers, parámetros y body JSON con tipo y si es obligatorio cada campo |
-| Response exitosa | Código HTTP y body JSON de ejemplo |
-| Errores | Códigos posibles, body de error y su causa |
-
-## 8. Cómo verificar
-
-Con los contenedores levantados (los nombres salen de `docker ps`):
+### Tests automáticos
 
 ```bash
-# Aplicar la migración
-docker exec pintaebook_web python manage.py migrate billing
-
-# Ver la estructura real (usuario y base están en el .env: POSTGRES_USER y POSTGRES_DB)
-docker exec pintaebook_db psql -U <POSTGRES_USER> -d <POSTGRES_DB> -c "\d paquetes_credito"
-docker exec pintaebook_db psql -U <POSTGRES_USER> -d <POSTGRES_DB> -c "\d transacciones_pagos"
+docker compose exec web python manage.py test apps.billing
 ```
 
-Para probar que la base rechaza datos inválidos, abrir `python manage.py shell` y crear un `CreditPackage` con `cantidad_creditos=0` o `precio=-1`: debe lanzar `IntegrityError`.
+Resultado esperado: **47 tests OK**. Cubren el catálogo, el checkout, el cliente de MP (timeouts, 4xx/5xx, respuestas malformadas, `notification_url`, `auto_return`) y el webhook (acreditación, idempotencia, monto distinto, rechazados, `merchant_order`, formatos IPN, ids inválidos). Reemplazan a MP por un doble: no necesitan red ni credenciales.
 
-Para probar el endpoint de saldo hace falta un usuario registrado y su token de acceso (ver los pasos de autenticación en la guía de e-books).
-
-Para probar el checkout en local sin Mercado Pago, activar el modo mock (sección 11), cargar un paquete (`CreditPackage`) y llamar a `POST /api/billing/checkout/` con el token. La respuesta debe ser `201` y debe aparecer una fila `pendiente` en `transacciones_pagos` con el monto del paquete y un `id_transaccion_externa` que empieza con `MOCK-`. 
-
-**Prueba contra el sandbox de Mercado Pago:**
-
-1. En Mercado Pago Developers, crear una aplicación (Checkout Pro) y usar su **Access Token de prueba** y un usuario **comprador de prueba** (sección "Cuentas de prueba"). No usar credenciales de producción ni cuentas personales.
-2. En el `.env` local (nunca en `.env.example`): `MERCADOPAGO_ACCESS_TOKEN=<token de prueba>`, `MERCADOPAGO_SANDBOX=True`, `MERCADOPAGO_MOCK_MODE=False`. Recrear el contenedor: `docker compose up -d --force-recreate web`.
-3. Crear un usuario local de prueba (por ejemplo con `create_user` en `manage.py shell`), loguearse en `POST /api/auth/login/` y llamar a `POST /api/billing/checkout/` con el `access` y un `paquete_id` existente.
-4. Esperar `201` con un `init_point` de `sandbox.mercadopago.com.ar`. Abrirlo en una ventana de incógnito y entrar con el comprador de prueba.
-5. Verificar en la base que la última `PaymentTransaction` esté `pendiente`, con el `monto` del paquete y un `id_transaccion_externa` que no empiece con `MOCK-`.
-6. Si responde `502` o `503`, ver el motivo en `docker logs pintaebook_web --tail 50`: el cliente registra la respuesta de Mercado Pago, truncada a 500 caracteres.
-
-**Tests automáticos:**
+### Prueba rápida con curl (backend solo)
 
 ```bash
-docker exec pintaebook_web python manage.py test apps.billing
+# 1) Login: devuelve "access" (JWT)
+curl -X POST http://localhost:8000/api/auth/login/ -H "Content-Type: application/json" \
+     -d '{"email":"usuario@correo.com","password":"su-clave"}'
+
+# 2) Paquetes
+curl http://localhost:8000/api/billing/packages/ -H "Authorization: Bearer <ACCESS>"
+
+# 3) Checkout: devuelve init_point (abrirlo en el navegador, en incógnito)
+curl -X POST http://localhost:8000/api/billing/checkout/ \
+     -H "Authorization: Bearer <ACCESS>" -H "Content-Type: application/json" \
+     -d '{"paquete_id": 1}'
+
+# 4) Saldo (después de pagar y esperar unos segundos)
+curl http://localhost:8000/api/billing/balance/ -H "Authorization: Bearer <ACCESS>"
 ```
 
-Resultado esperado hoy: **28 tests**. Los 23 de `test_checkout.py` (10 del endpoint y 13 del cliente de Mercado Pago) pasan. **Fallan 4 tests preexistentes** de `BillingTests` (`tests.py`): esperan 100 créditos de bienvenida y la signal da 1000. No se tocaron en tk084; ver sección 10.
+### Prueba de punta a punta (con el front)
 
-Para correr solo los del checkout: `python manage.py test apps.billing.test_checkout`.
+Requisitos: backend y front levantados, **ngrok abierto**, `.env` completo (sección 8).
 
-**Sobre el modo mock:** las variables se leen del `.env` con `django-environ`, no de `docker-compose.yml`. Si se cambia el `.env` hay que recrear el contenedor (ver sección 11).
+1. Abrir `http://localhost:4200`, iniciar sesión.
+2. Pulsar **+ Comprar créditos** → elegir un paquete → **Comprar**.
+3. En Mercado Pago, iniciar sesión con el **comprador de prueba** y pagar (sección 6).
+4. En `http://127.0.0.1:4040` (inspector de ngrok) debe aparecer un `POST /api/billing/webhook/` con `200`.
+5. Volver a la app y verificar que el saldo subió.
+6. Verificar en base de datos que la transacción quedó `aprobado`:
 
-## 9. Decisiones de diseño
+```bash
+docker compose exec web python manage.py shell -c "from apps.billing.models import PaymentTransaction as P; [print(t.id, t.estado_transaccion, t.monto) for t in P.objects.order_by('-id')[:5]]"
+```
 
-- **`CheckConstraint` además de `choices`:** `choices` solo valida en Python (formularios, serializers); el constraint garantiza la regla en la base.
-- **`id` declarado como `AutoField`:** respeta el `SERIAL` de 32 bits del diagrama sin depender de `DEFAULT_AUTO_FIELD`.
-- **`IntegerField` en `cantidad_creditos`:** `PositiveIntegerField` agrega su propio `CHECK >= 0` y duplicaría la regla `> 0` del diagrama.
-- **`db_default` en `fecha`:** el `DEFAULT` lo define PostgreSQL, como pide el diagrama, y aplica también a inserciones que no pasan por el ORM.
+### Probar el checkout sin Mercado Pago (modo mock)
 
-Decisiones del checkout (tk084):
+Con `MERCADOPAGO_MOCK_MODE=True` el checkout devuelve un `init_point` de ejemplo (`example.com`) y la transacción queda `pendiente` con un `id_transaccion_externa` que empieza con `MOCK-`. Sirve para probar el front sin credenciales; **no hay pago real** y el webhook no aplica.
 
-- **Tres capas (vista → servicio → adaptador):** la vista solo valida y responde; el servicio decide; `infrastructure/mercadopago_client.py` es el único que conoce Mercado Pago. Cambiar de pasarela toca un solo archivo.
-- **Se llama a Mercado Pago antes de insertar en la base, y fuera de una transacción de base de datos:** si la pasarela falla, no queda ninguna fila `pendiente` huérfana, y no se mantiene una transacción abierta durante una llamada de red de hasta 10 segundos. La contracara: si la pasarela responde bien y el insert falla, queda una preferencia sin fila (se registra en el log y se relanza el error).
-- **El monto sale siempre del paquete en la base, nunca del request:** el cliente no puede elegir cuánto pagar.
-- **`requests` en lugar del SDK de Mercado Pago:** se usa un solo endpoint, y así el timeout y el mapeo de errores quedan bajo nuestro control y fáciles de testear.
-- **Errores tipados:** timeout, error de conexión, 5xx y 429 de Mercado Pago → `503` (reintentable). Otros 4xx, JSON inválido o respuesta sin `init_point` → `502` (la pasarela respondió, pero algo no sirve). Sin credenciales configuradas → `503`.
-- **Un solo `init_point` en la respuesta:** según `MERCADOPAGO_SANDBOX`, el backend elige `sandbox_init_point` o `init_point`; el frontend no distingue.
-- **Modo mock apagado por defecto:** evita que se active solo en producción.
-- **Moneda fija `ARS`:** decisión del equipo por ahora.
-- **`create_checkout` recibe `gateway=` opcional:** permite probar el servicio con un doble de prueba sin tocar la red.
+---
 
-## 10. Puntos abiertos
+## 11. Problemas frecuentes
 
-- El diagrama define `balances_credito.id` como `SERIAL`, pero el modelo `CreditBalance` existente usa UUID. No se modificó.
-- Con `CASCADE` desde usuario, borrar un usuario elimina su historial de pagos. Falta confirmar si es lo deseado a nivel contable.
-- Solo se guarda el `monto` cobrado, no la cantidad de créditos de la compra. Si cambia `cantidad_creditos` de un paquete, no queda registro de cuántos créditos recibió una compra anterior.
-- `precio >= 0` permite paquetes gratuitos, pero `monto > 0` no permite registrar el pago de uno.
-- `fecha` es `timestamptz` (el diagrama indica `TIMESTAMP`) y su default es `statement_timestamp()`, equivalente en la práctica a `NOW()`.
-
-Puntos abiertos del checkout:
-
-- **Pago de punta a punta sin probar.** La creación de la preferencia y el `init_point` se verificaron contra el sandbox real, pero al pagar en la página de sandbox el botón "Pagar" no se habilitó con ninguna tarjeta de prueba, así que no se vio un pago aprobado. Queda para el ticket del webhook. Tampoco se probaron a mano los `502` y `503` reales (solo con tests automáticos).
-- **No hay endpoint para listar paquetes** ni una carga inicial de datos: la tabla `paquetes_credito` empieza vacía.
-- **`external_reference`** guarda `<uuid_usuario>:<paquete_id>`, que no distingue dos compras iguales del mismo usuario. El webhook debería identificar la transacción por el ID de preferencia.
-- **`id_transaccion_externa`** guarda hoy el ID de la **preferencia**, no el del pago final. El ticket del webhook tiene que decidir si lo actualiza o busca por preferencia.
-- **Doble clic:** cada llamada crea una preferencia y una transacción `pendiente` nuevas. No hay deduplicación.
-- **Paquetes gratuitos:** el checkout responde `400` porque `monto` debe ser mayor a 0.
-- **URLs de retorno (`back_urls`)** sin definir: el usuario no vuelve solo a la aplicación.
-- **Tests existentes desactualizados:** 4 tests de `BillingTests` en `tests.py` esperan 100 créditos de bienvenida y la signal da 1000 (`INITIAL_WELCOME_CREDITS`, commit `fab5d9c`). No se modificaron en este ticket.
-
-## 11. Configuración (variables de entorno)
-
-El cliente de Mercado Pago (`infrastructure/mercadopago_client.py`) lee estas variables. Se cargan desde el `.env` de la raíz del proyecto (`config/settings/base.py` lo lee con `django-environ`). El `.env` no se sube al repositorio y **nunca debe contener valores reales en `.env.example`**.
-
-| Variable | Para qué sirve | Por defecto |
+| Síntoma | Causa | Solución |
 |---|---|---|
-| `MERCADOPAGO_ACCESS_TOKEN` | Credencial de la API de Mercado Pago. Sin ella, el checkout real responde `503` | vacío |
-| `MERCADOPAGO_SANDBOX` | `True`: devuelve el `sandbox_init_point` de Mercado Pago en lugar del `init_point` | `False` |
-| `MERCADOPAGO_MOCK_MODE` | `True`: no llama a Mercado Pago ni necesita credenciales; devuelve una preferencia simulada (`MOCK-...`). Solo para desarrollo y pruebas | `False` |
-| `MERCADOPAGO_BASE_URL` | URL base de la API | `https://api.mercadopago.com` |
-| `MERCADOPAGO_BACK_URL_SUCCESS` | URL del frontend a la que vuelve el usuario tras un pago aprobado. Si no se define, no se envían `back_urls` | vacío |
-| `MERCADOPAGO_BACK_URL_FAILURE` | Ídem para un pago fallido (si falta, usa la de éxito) | vacío |
-| `MERCADOPAGO_BACK_URL_PENDING` | Ídem para un pago pendiente (si falta, usa la de éxito) | vacío |
+| Checkout devuelve `503` | `MERCADOPAGO_ACCESS_TOKEN` vacío o MP caído | Cargar el token en `.env` y `docker compose restart web`; ver `docker compose logs web` |
+| Checkout devuelve `502` con `auto_return invalid` en logs | `back_url` de éxito con `http://localhost` | Ya resuelto: el backend solo manda `auto_return` con `https://`. Actualizar el backend |
+| `GET /billing/packages/` da `404` | Daphne no recargó el código nuevo | `docker compose restart web` |
+| El webhook no recibe nada | Falta `MERCADOPAGO_NOTIFICATION_URL`, ngrok cerrado o URL de ngrok distinta | Revisar `.env`, que ngrok esté abierto y el inspector (`127.0.0.1:4040`) |
+| El webhook responde `400 DisallowedHost` | El dominio del túnel no está en `ALLOWED_HOSTS` | Agregarlo y reiniciar `web` |
+| "Pagar" queda gris en MP | Extensión que bloquea scripts, sesión equivocada o formulario incompleto | Ver sección 6 |
+| Pagué pero no se acreditaron créditos | Webhook no llegó o falló | Ver logs (`docker compose logs web`) y el inspector de ngrok; reenviar el aviso desde el inspector (botón *Replay*) |
+| La transacción queda `pendiente` | El aviso no llegó todavía, o el pago está pendiente en MP | Esperar y revisar el webhook; si hace falta, reenviarlo |
+| El usuario vuelve a la app deslogueado | Origen distinto (`127.0.0.1` vs `localhost`) | Usar el mismo origen en el front y en las `back_urls` |
 
-Notas:
+---
 
-- El `MERCADOPAGO_ACCESS_TOKEN` va **solo en el `.env` local**. En `.env.example` van las variables vacías o con valores de ejemplo, porque ese archivo sí se sube al repositorio. Quien no tenga credenciales de prueba puede trabajar con `MERCADOPAGO_MOCK_MODE=True`.
-- El modo mock está **apagado por defecto** para que nunca se active solo en producción.
-- La moneda de los pagos es siempre pesos argentinos (`ARS`).
-- Cambiar el `.env` no afecta a un contenedor que ya está corriendo: hay que recrearlo (`docker compose up -d --force-recreate web`).
+## 12. Despliegue en producción
+
+El hosting (Render, Railway, etc.) **no cambia nada del lado de Mercado Pago**: lo que decide si el pago es de prueba o real es el **Access Token**. Para este proyecto académico se pueden **mantener las cuentas de prueba** incluso desplegado (el comprador de prueba y las tarjetas de prueba siguen funcionando).
+
+Lo que cambia al desplegar:
+
+| Qué | Desarrollo | Producción |
+|---|---|---|
+| `MERCADOPAGO_NOTIFICATION_URL` | URL de ngrok | `https://<backend-desplegado>/api/billing/webhook/` (ya no hace falta ngrok) |
+| `ALLOWED_HOSTS` | `localhost,...,<ngrok>` | Dominio del backend desplegado |
+| `CORS_ALLOWED_ORIGINS` | `localhost:4200` | URL pública del front |
+| `MERCADOPAGO_BACK_URL_*` | `http://localhost:4200/...` | `https://<front-desplegado>/billing/result/...` (con `https` el usuario vuelve solo) |
+| `MERCADOPAGO_MOCK_MODE` | `False` | `False` |
+| Dónde se guardan las variables | `.env` local | **Panel de variables del hosting** (no en el repositorio) |
+| URL base de la API en el front | `http://localhost:8000/api/...` | URL del backend desplegado |
+
+Para cobrar dinero real habría que usar credenciales de una cuenta real verificada de MP (solo cambia el token). No es necesario para este proyecto.
+
+---
+
+## 13. Archivos del módulo, decisiones y próximos pasos
+
+### Archivos
+
+| Archivo | Qué hace |
+|---|---|
+| `apps/billing/models.py` | `CreditBalance`, `CreditPackage`, `PaymentTransaction`, `EstadoTransaccion` |
+| `apps/billing/migrations/0003_seed_credit_packages.py` | Carga los 3 paquetes iniciales (idempotente) |
+| `apps/billing/services.py` | `BillingService`: checkout, procesamiento de pagos y de órdenes, créditos |
+| `apps/billing/views.py` | Vistas: paquetes, saldo, checkout, webhook |
+| `apps/billing/serializers.py` | Validación del body del checkout y formato de paquetes/saldo |
+| `apps/billing/urls.py` | Rutas `billing/packages/`, `balance/`, `checkout/`, `webhook/` |
+| `apps/billing/signals.py` | Crea el saldo inicial al registrarse un usuario |
+| `infrastructure/mercadopago_client.py` | **Único** archivo que conoce Mercado Pago: crea preferencias, consulta pagos y órdenes, traduce errores |
+| `apps/billing/tests.py`, `test_checkout.py`, `test_packages.py` | Tests automáticos |
+
+### Decisiones de diseño
+
+- **Tres capas (vista → servicio → adaptador):** cambiar de pasarela toca un solo archivo.
+- **El monto sale siempre del paquete en la base**, nunca del request.
+- **Se crea primero la transacción `pendiente`** y su ID viaja como `external_reference`. Si MP falla al crear la preferencia, la transacción queda `fallido`.
+- **La llamada de red va fuera de la transacción de base de datos**, para no mantener filas bloqueadas mientras se espera a MP.
+- **`requests` en lugar del SDK de MP:** se usan pocos endpoints; así el timeout (10 s) y el mapeo de errores quedan bajo nuestro control.
+- **Errores tipados:** timeout, red, 5xx y 429 → `503` (reintentable); otros 4xx o respuesta inválida → `502`.
+- **`CheckConstraint` además de `choices`:** las reglas se garantizan en la base, no solo en Python.
+
+### Límites actuales y próximos pasos
+
+- Validar la firma `x-signature` del webhook.
+- Procesar reembolsos (hoy se ignoran).
+- Guardar el Payment ID en una columna propia para trazabilidad (hoy `id_transaccion_externa` conserva el ID de preferencia).
+- Endpoint para consultar el estado de una transacción puntual desde el front.
+- Proceso de conciliación que revise transacciones `pendiente` por si un aviso se pierde.
+- Un doble clic en "Comprar" crea dos transacciones `pendiente` (el front lo evita deshabilitando el botón).
