@@ -3,9 +3,25 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 
-from .models import CreditBalance
-from .serializers import CheckoutRequestSerializer, CreditBalanceSerializer
+from .models import CreditBalance, CreditPackage
+from .serializers import (
+    CheckoutRequestSerializer,
+    CreditBalanceSerializer,
+    CreditPackageSerializer,
+)
 from .services import BillingService
+
+
+class CreditPackageListView(APIView):
+    """
+    Catálogo de paquetes de créditos disponibles para comprar, del más barato
+    al más caro. Son pocos, por eso se devuelve la lista completa sin paginar.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        packages = CreditPackage.objects.order_by('precio', 'id')
+        return Response(CreditPackageSerializer(packages, many=True).data)
 
 
 class BillingBalanceView(APIView):
