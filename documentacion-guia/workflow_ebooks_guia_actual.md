@@ -553,3 +553,4 @@ Si el usuario navega fuera del dashboard mientras se genera un e-book, el WebSoc
 ---
 
 *Última actualización: Sprint 4 — 01/10/2026*  
+
