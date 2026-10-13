@@ -102,6 +102,7 @@ Todos cuelgan de `/api/` (lo define `config/urls.py`). Salvo el webhook, **requi
 | `GET` | `/api/billing/packages/` | Listar paquetes | JWT | Front |
 | `POST` | `/api/billing/checkout/` | Iniciar el pago de un paquete | JWT | Front |
 | `GET` | `/api/billing/balance/` | Consultar saldo | JWT | Front |
+| `GET` | `/api/billing/transactions/` | Historial de compras del usuario | JWT | Front |
 | `POST` | `/api/billing/webhook/` | Recibir avisos de Mercado Pago | **Ninguna** | **Solo Mercado Pago** |
 
 ### 4.1 `GET /api/billing/packages/`
@@ -188,7 +189,71 @@ El front debe **redirigir** a esa URL: `window.location.href = init_point` (es u
 - Los campos llegan en `snake_case`. Es solo lectura.
 - Errores: `401` sin token válido.
 
-### 4.4 `POST /api/billing/webhook/` (solo para Mercado Pago)
+### 4.4 `GET /api/billing/transactions/`
+
+Historial de compras de paquetes de créditos **del usuario autenticado** (el usuario sale del token: nunca se ven compras de otros). Ordenado de la **más reciente a la más antigua**.
+
+- **Request:** sin body. Parámetros de query opcionales:
+
+| Parámetro | Obligatorio | Descripción |
+|---|---|---|
+| `page` | No | Número de página (10 compras por página) |
+| `estado` | No | Solo las compras en ese estado: `pendiente`, `aprobado`, `fallido`, `cancelado` o `reembolsado` |
+
+- **Respuesta `200 OK`** (paginada, igual que `/api/ebooks/`):
+
+```json
+{
+  "count": 2,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": 15,
+      "paquete": { "id": 3, "nombre": "Pro", "cantidad_creditos": 1000 },
+      "monto": "7000.00",
+      "estado": "aprobado",
+      "fecha": "2026-10-13T14:32:10.123456Z"
+    },
+    {
+      "id": 12,
+      "paquete": { "id": 1, "nombre": "Básico", "cantidad_creditos": 100 },
+      "monto": "1000.00",
+      "estado": "pendiente",
+      "fecha": "2026-10-12T09:01:44.654321Z"
+    }
+  ]
+}
+```
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `count` | entero | Total de compras (todas las páginas) |
+| `next` / `previous` | string o `null` | URL de la página siguiente / anterior |
+| `results[].id` | entero | ID de la transacción |
+| `results[].paquete` | objeto | Paquete comprado: `id`, `nombre`, `cantidad_creditos` (valores **actuales** del paquete) |
+| `results[].monto` | **string** decimal | Lo realmente cobrado (`"7000.00"`). Llega como texto, igual que `precio`. Moneda: ARS |
+| `results[].estado` | string | `pendiente`, `aprobado`, `fallido`, `cancelado` o `reembolsado` |
+| `results[].fecha` | string ISO 8601 | Fecha de la compra (UTC). Convertir a `Date` para formatear |
+
+- **Qué incluye:** **todas** las transacciones, no solo las aprobadas. Un `pendiente` es un checkout iniciado que aún no se pagó (o que se abandonó). Para mostrar solo lo realmente comprado, usar `?estado=aprobado`.
+- **Sin compras:** `200` con `count: 0` y `results: []` (nunca `404`).
+- **Errores:**
+
+| Código | Cuándo | Cuerpo de ejemplo |
+|---|---|---|
+| `400` | `estado` con un valor que no existe | `{"estado": ["Valor inválido. Opciones: pendiente, aprobado, ..."]}` |
+| `401` | Sin token o token vencido | `{"detail": "Authentication credentials were not provided."}` |
+| `404` | `page` fuera de rango | `{"detail": "Invalid page."}` |
+
+- **No expone** el ID de la preferencia de Mercado Pago (`id_transaccion_externa`): es un dato interno.
+- **Ejemplo:**
+
+```bash
+curl "http://localhost:8000/api/billing/transactions/?estado=aprobado" -H "Authorization: Bearer <ACCESS>"
+```
+
+### 4.5 `POST /api/billing/webhook/` (solo para Mercado Pago)
 
 **El front NO usa este endpoint.** Se documenta para entender el sistema y para depurar.
 
@@ -253,10 +318,36 @@ export class BillingService {
   createCheckout(paqueteId: number) {
     return this.http.post<{ init_point: string }>(`${this.BASE}/checkout/`, { paquete_id: paqueteId });
   }
+  getTransactions(page = 1, estado?: string) {
+    let params = new HttpParams().set('page', page);
+    if (estado) params = params.set('estado', estado);
+    return this.http.get<Paginated<PurchaseHistoryItem>>(`${this.BASE}/transactions/`, { params });
+  }
 }
 ```
 
 El interceptor JWT existente (`jwt.interceptor.ts`) agrega el header `Authorization` solo.
+
+Tipos para el historial (`getTransactions`, sección 4.4):
+
+```ts
+export type PurchaseStatus = 'pendiente' | 'aprobado' | 'fallido' | 'cancelado' | 'reembolsado';
+
+export interface PurchaseHistoryItem {
+  id: number;
+  paquete: { id: number; nombre: string; cantidad_creditos: number };
+  monto: string;        // "7000.00": llega como string
+  estado: PurchaseStatus;
+  fecha: string;        // ISO 8601, UTC
+}
+
+export interface Paginated<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
+```
 
 ### Paso 2 — Mostrar los paquetes
 
@@ -295,6 +386,17 @@ En `success`, **no afirmar que se acreditó**: el webhook puede no haber llegado
 2. En la pantalla de retorno, consultar `GET /api/billing/balance/` **cada 3 segundos, máximo ~30 s**.
 3. Si `credits_available` **superó** el saldo previo → "¡Créditos acreditados!".
 4. Si se agota el tiempo → "Tu pago se está procesando, el saldo se actualizará en unos minutos". **No es un error**: MP reintenta el aviso.
+
+### Paso 6 — Historial de compras
+
+> El proyecto `pintaebook-front-tester` **todavía no implementa** esta pantalla: es el único paso de esta guía sin código de referencia.
+
+Pantalla (por ejemplo `/billing/history`) que llama a `getTransactions()` y muestra una fila por compra: `paquete.nombre`, `paquete.cantidad_creditos`, `monto` (con `Number(monto)`), `fecha` y `estado`.
+
+- **Paginado:** 10 por página. Usar `count`, `next` y `previous` para los botones "Anterior/Siguiente".
+- **Estados:** mostrar una etiqueta por `estado` (`aprobado` = acreditada; `pendiente` = esperando pago; `fallido`/`cancelado` = no se cobró). Decidir por el valor, no por texto libre.
+- Para listar solo lo acreditado, pedir `?estado=aprobado`.
+- Si `count` es `0`, mostrar "Todavía no compraste créditos". No es un error.
 
 ### Qué NO hacer
 
@@ -522,7 +624,7 @@ Un pago rechazado **no** bloquea un intento posterior: el usuario puede reintent
 docker compose exec web python manage.py test apps.billing
 ```
 
-Resultado esperado: **47 tests OK**. Cubren el catálogo, el checkout, el cliente de MP (timeouts, 4xx/5xx, respuestas malformadas, `notification_url`, `auto_return`) y el webhook (acreditación, idempotencia, monto distinto, rechazados, `merchant_order`, formatos IPN, ids inválidos). Reemplazan a MP por un doble: no necesitan red ni credenciales.
+Resultado esperado: **55 tests OK**. Cubren el catálogo, el historial de compras (aislamiento por usuario, orden, filtro por estado, paginación), el checkout, el cliente de MP (timeouts, 4xx/5xx, respuestas malformadas, `notification_url`, `auto_return`) y el webhook (acreditación, idempotencia, monto distinto, rechazados, `merchant_order`, formatos IPN, ids inválidos). Reemplazan a MP por un doble: no necesitan red ni credenciales.
 
 ### Prueba rápida con curl (backend solo)
 
@@ -612,12 +714,12 @@ Para cobrar dinero real habría que usar credenciales de una cuenta real verific
 | `apps/billing/models.py` | `CreditBalance`, `CreditPackage`, `PaymentTransaction`, `EstadoTransaccion` |
 | `apps/billing/migrations/0003_seed_credit_packages.py` | Carga los 3 paquetes iniciales (idempotente) |
 | `apps/billing/services.py` | `BillingService`: checkout, procesamiento de pagos y de órdenes, créditos |
-| `apps/billing/views.py` | Vistas: paquetes, saldo, checkout, webhook |
-| `apps/billing/serializers.py` | Validación del body del checkout y formato de paquetes/saldo |
-| `apps/billing/urls.py` | Rutas `billing/packages/`, `balance/`, `checkout/`, `webhook/` |
+| `apps/billing/views.py` | Vistas: paquetes, saldo, historial de compras, checkout, webhook |
+| `apps/billing/serializers.py` | Validación del body del checkout y formato de paquetes, saldo e historial |
+| `apps/billing/urls.py` | Rutas `billing/packages/`, `balance/`, `transactions/`, `checkout/`, `webhook/` |
 | `apps/billing/signals.py` | Crea el saldo inicial al registrarse un usuario |
 | `infrastructure/mercadopago_client.py` | **Único** archivo que conoce Mercado Pago: crea preferencias, consulta pagos y órdenes, traduce errores |
-| `apps/billing/tests.py`, `test_checkout.py`, `test_packages.py` | Tests automáticos |
+| `apps/billing/tests.py`, `test_checkout.py`, `test_packages.py`, `test_transactions.py` | Tests automáticos |
 
 ### Decisiones de diseño
 
@@ -634,6 +736,7 @@ Para cobrar dinero real habría que usar credenciales de una cuenta real verific
 - Validar la firma `x-signature` del webhook.
 - Procesar reembolsos (hoy se ignoran).
 - Guardar el Payment ID en una columna propia para trazabilidad (hoy `id_transaccion_externa` conserva el ID de preferencia).
-- Endpoint para consultar el estado de una transacción puntual desde el front.
+- Endpoint para consultar el estado de una transacción puntual desde el front (hoy se puede obtener desde el historial, `GET /api/billing/transactions/`).
+- El historial muestra los datos **actuales** del paquete: si en el futuro se edita `cantidad_creditos` de un paquete, las compras viejas mostrarían el valor nuevo (el `monto` sí es un snapshot).
 - Proceso de conciliación que revise transacciones `pendiente` por si un aviso se pierde.
 - Un doble clic en "Comprar" crea dos transacciones `pendiente` (el front lo evita deshabilitando el botón).

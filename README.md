@@ -261,6 +261,7 @@ Todas las rutas protegidas requieren: `Authorization: Bearer <access_token>`
 |---|---|---|---|
 | GET | `/api/billing/balance/` | Saldo actual de créditos | Privado |
 | GET | `/api/billing/packages/` | Catálogo de paquetes de créditos | Privado |
+| GET | `/api/billing/transactions/` | Historial de compras del usuario, paginado (`?page=`, `?estado=`), más reciente primero | Privado |
 | POST | `/api/billing/checkout/` | Inicia el pago de un paquete en Mercado Pago (retorna `init_point`) | Privado |
 | POST | `/api/billing/webhook/` | Aviso de pagos de Mercado Pago (lo llama MP, no el front) | Público |
 

@@ -1,13 +1,15 @@
-from rest_framework import status
+from rest_framework import generics, status
+from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 
-from .models import CreditBalance, CreditPackage
+from .models import CreditBalance, CreditPackage, EstadoTransaccion, PaymentTransaction
 from .serializers import (
     CheckoutRequestSerializer,
     CreditBalanceSerializer,
     CreditPackageSerializer,
+    PaymentTransactionSerializer,
 )
 from .services import BillingService
 
@@ -35,6 +37,34 @@ class BillingBalanceView(APIView):
         balance, _ = CreditBalance.objects.get_or_create(usuario=request.user)
         serializer = CreditBalanceSerializer(balance)
         return Response(serializer.data)
+
+
+class BillingTransactionListView(generics.ListAPIView):
+    """
+    Historial de compras de paquetes de créditos del usuario autenticado, de la
+    más reciente a la más antigua. Paginado (PAGE_SIZE global).
+
+    Incluye todos los estados (pendiente, aprobado, fallido, ...). Con
+    `?estado=aprobado` se devuelven solo las compras de ese estado.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = PaymentTransactionSerializer
+
+    def get_queryset(self):
+        queryset = (
+            PaymentTransaction.objects
+            .filter(usuario=self.request.user)
+            .select_related('paquete')
+            .order_by('-fecha', '-id')
+        )
+        estado = self.request.query_params.get('estado')
+        if estado:
+            if estado not in EstadoTransaccion.values:
+                raise ValidationError({
+                    'estado': [f"Valor inválido. Opciones: {', '.join(EstadoTransaccion.values)}."]
+                })
+            queryset = queryset.filter(estado_transaccion=estado)
+        return queryset
 
 
 class BillingCheckoutView(APIView):

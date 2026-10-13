@@ -1,11 +1,32 @@
 from rest_framework import serializers
-from .models import CreditBalance, CreditPackage
+from .models import CreditBalance, CreditPackage, PaymentTransaction
 
 
 class CreditPackageSerializer(serializers.ModelSerializer):
     class Meta:
         model = CreditPackage
         fields = ('id', 'nombre', 'cantidad_creditos', 'precio')
+        read_only_fields = fields
+
+
+class PackageSummarySerializer(serializers.ModelSerializer):
+    """Resumen del paquete comprado (sin precio: el cobrado está en `monto`)."""
+
+    class Meta:
+        model = CreditPackage
+        fields = ('id', 'nombre', 'cantidad_creditos')
+        read_only_fields = fields
+
+
+class PaymentTransactionSerializer(serializers.ModelSerializer):
+    """Una fila del historial de compras. No expone `id_transaccion_externa`."""
+
+    paquete = PackageSummarySerializer(read_only=True)
+    estado = serializers.CharField(source='estado_transaccion', read_only=True)
+
+    class Meta:
+        model = PaymentTransaction
+        fields = ('id', 'paquete', 'monto', 'estado', 'fecha')
         read_only_fields = fields
 
 
