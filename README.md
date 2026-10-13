@@ -23,6 +23,8 @@ El backend implementa una arquitectura modular y desacoplada con persistencia h�
 | Inteligencia Artificial | OpenRouter API (modelo free compatible) |
 | Sanitización HTML | nh3 (basado en Rust) |
 | Autenticación | SimpleJWT + Google OAuth 2.0 / OpenID Connect |
+| Pagos | Mercado Pago (Checkout Pro) |
+| Correo (OTP) | Brevo vía API HTTP (`django-anymail`) |
 | Contenedores | Docker + Docker Compose |
 
 ---
@@ -202,7 +204,14 @@ AI_MOCK_MODE=FALSE
 
 # Google OAuth (opcional)
 GOOGLE_CLIENT_ID=tu-google-client-id.apps.googleusercontent.com
+
+# Correo para el OTP de recuperación de contraseña (Brevo)
+EMAIL_BACKEND=anymail.backends.brevo.EmailBackend
+BREVO_API_KEY=tu-api-key-v3-de-brevo
+DEFAULT_FROM_EMAIL=Pinta Ebook <remitente-verificado-en-brevo@gmail.com>
 ```
+
+> Mercado Pago tiene sus propias variables (`MERCADOPAGO_*`): ver `documentacion-guia/workflow_billing_guia_actual.md`, sección 8.
 
 ### 2. Construir e Iniciar Contenedores
 
@@ -254,10 +263,25 @@ Todas las rutas protegidas requieren: `Authorization: Bearer <access_token>`
 | POST | `/api/auth/google/` | Login federado con Google OAuth | Público |
 | POST | `/api/auth/refresh/` | Renovar access token | Público |
 | GET | `/api/auth/me/` | Perfil del usuario autenticado | Privado |
-| POST | `/api/auth/password-reset/request/` | Envía un OTP de 6 dígitos al correo (responde igual exista o no la cuenta) | Público |
-| POST | `/api/auth/password-reset/confirm/` | Valida el OTP y fija la nueva contraseña | Público |
+| POST | `/api/auth/password-reset/request/` | Envía un código OTP de 6 dígitos al correo de la cuenta | Público |
+| POST | `/api/auth/password-reset/confirm/` | Valida el OTP y establece la nueva contraseña | Público |
 
-> Detalle, límites de seguridad y configuración de correo en `documentacion-guia/workflow_recuperar_contrasena.md`.
+#### Recuperar contraseña (OTP por correo)
+
+1. `POST /api/auth/password-reset/request/` con `{ "email": "usuario@gmail.com" }` → `200` siempre, exista o no la cuenta. El código llega al correo (enviado con Brevo).
+2. `POST /api/auth/password-reset/confirm/` con:
+
+```json
+{ "email": "usuario@gmail.com", "code": "381174", "new_password": "Otra-Clave-Nueva-456" }
+```
+
+→ `200` y el usuario debe iniciar sesión. Errores `400` con el campo (`code`, `new_password` o `email`).
+
+- El código tiene **6 dígitos**, vence a los **10 minutos**, se usa **una vez** y admite **5 intentos**.
+- Reenvío: esperar **60 segundos** entre pedidos.
+- Requiere correr `migrate` (tabla `password_reset_otps`).
+
+> Guía completa para el front en `documentacion-guia/workflow_recuperar_contrasena.md`.
 
 ### Billetera (`/api/billing/`)
 
@@ -329,6 +353,7 @@ Todas las rutas protegidas requieren: `Authorization: Bearer <access_token>`
 3. **Reconexión:** Si el WebSocket cierra con código `1011`, el backend tuvo un error interno. Mostrar mensaje al usuario y ofrecer reintentar.
 4. **Campo IA:** La respuesta de `/api/ai/generate/` usa `generated_html` (no `html`). Los créditos actualizados vienen en `credits_available` (no `credits_remaining`).
 5. **Estado PROCESSING:** Los e-books recién creados tienen `status: "PROCESSING"`. No intentar abrir el editor hasta recibir el evento `status: "COMPLETED"` por WebSocket.
+6. **Recuperar contraseña:** el `200` de `/api/auth/password-reset/request/` no confirma que el correo exista. Mostrar siempre el mismo mensaje y deshabilitar "Reenviar" 60 s.
 
 ---
 
