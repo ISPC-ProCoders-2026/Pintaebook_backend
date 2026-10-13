@@ -6,6 +6,66 @@ El formato se basa en los estándares de registro de cambios técnicos organizad
 
 ---
 
+## Sprint 4 - Generación de E-books con IA, Pagos con Mercado Pago y Recuperación de Contraseña
+
+### Resumen General
+
+Se finalizó el algoritmo de los e-books: ya se pueden **crear, editar y refinar con IA** usando OpenRouter, con generación asíncrona y progreso en tiempo real. Se completó todo lo relacionado con los **paquetes de créditos y la pasarela de Mercado Pago**, funcionando tanto en local como en producción. Además se agregó la **recuperación de contraseña mediante un código OTP** que llega por correo electrónico (Gmail) con Brevo.
+
+---
+
+### Cambios e Implementaciones Detalladas
+
+#### 1. E-books con IA (`apps/ebooks`, `apps/content`, `apps/ai_engine`)
+- **Creación asistida:** el e-book se genera con IA vía OpenRouter (tabla de contenidos y capítulos en HTML). La petición responde `201` de inmediato y el proceso continúa en segundo plano.
+- **Progreso en tiempo real:** eventos por WebSocket (`/ws/ebooks/<ebook_id>/progress/`) con Redis como Channel Layer, hasta el estado `COMPLETED` o `FAILED`.
+- **Edición:** guardado de capítulos y secciones con control de concurrencia optimista, y refinamiento puntual de una sección con IA (`POST /api/ai/generate/`).
+- **Exportación a EPUB** (`GET /api/ebooks/<id>/export/epub/`) para e-books `COMPLETED`.
+
+#### 2. Paquetes de créditos y Mercado Pago (`apps/billing`)
+- **Catálogo de paquetes** (`GET /api/billing/packages/`) con tres paquetes iniciales cargados por migración.
+- **Checkout con Mercado Pago** (`POST /api/billing/checkout/`): crea la preferencia, registra la transacción como `pendiente` y devuelve la URL de pago.
+- **Webhook** (`POST /api/billing/webhook/`): verifica el pago directamente con Mercado Pago y acredita los créditos de forma atómica e idempotente.
+- **Historial de compras** (`GET /api/billing/transactions/`): paginado, solo del usuario autenticado, con filtro por estado.
+- **Funcionamiento en local y en producción:** en local con túnel (ngrok) y en producción con URLs públicas `https`. Probado con cuentas de prueba de Mercado Pago.
+
+#### 3. Recuperación de contraseña con OTP (`apps/accounts`)
+- **Solicitud de código** (`POST /api/auth/password-reset/request/`): envía un código de 6 dígitos al correo de la cuenta. Responde igual exista o no el correo.
+- **Confirmación** (`POST /api/auth/password-reset/confirm/`): valida el código y establece la nueva contraseña.
+- **Reglas:** vigencia de 10 minutos, uso único, máximo 5 intentos y espera de 60 segundos entre pedidos. El código se guarda cifrado (hash), nunca en claro.
+- **Envío de correo con Brevo** mediante `django-anymail` (API HTTP), porque el plan gratuito de Render bloquea el envío por SMTP.
+- **Migración nueva:** `accounts/0003_passwordresetotp` (tabla `password_reset_otps`).
+
+---
+
+### Resumen de Endpoints Nuevos (Sprint 4)
+
+| Método | Endpoint | Descripción | Requiere Autenticación |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/billing/packages/` | Catálogo de paquetes de créditos | Sí |
+| `POST` | `/api/billing/checkout/` | Inicia el pago de un paquete en Mercado Pago | Sí |
+| `POST` | `/api/billing/webhook/` | Aviso de pagos de Mercado Pago (lo llama Mercado Pago) | No |
+| `GET` | `/api/billing/transactions/` | Historial de compras (paginado) | Sí |
+| `GET` | `/api/ebooks/<id>/export/epub/` | Descarga del e-book en formato EPUB | Sí |
+| `POST` | `/api/auth/password-reset/request/` | Envía el código OTP al correo | No |
+| `POST` | `/api/auth/password-reset/confirm/` | Valida el OTP y cambia la contraseña | No |
+
+---
+
+### Notas de Despliegue
+- Ejecutar `python manage.py migrate` en cada despliegue (crea la tabla de los códigos OTP).
+- Nuevas variables de entorno: `EMAIL_BACKEND`, `BREVO_API_KEY`, `DEFAULT_FROM_EMAIL`, y las `MERCADOPAGO_*` con URLs públicas de producción.
+- Nueva dependencia en `requirements.txt`: `django-anymail`.
+
+---
+
+### Documentación
+- `documentacion-guia/workflow_billing_guia_actual.md`
+- `documentacion-guia/workflow_exportar_epub.md`
+- `documentacion-guia/workflow_recuperar_contrasena.md`
+
+---
+
 ## Sprint 3 - Facturación de Créditos, Infraestructura de IA y Persistencia Híbrida
 
 ### Resumen General
