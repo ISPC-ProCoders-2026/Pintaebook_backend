@@ -36,6 +36,12 @@ Se finalizó el algoritmo de los e-books: ya se pueden **crear, editar y refinar
 - **Envío de correo con Brevo** mediante `django-anymail` (API HTTP), porque el plan gratuito de Render bloquea el envío por SMTP.
 - **Migración nueva:** `accounts/0003_passwordresetotp` (tabla `password_reset_otps`).
 
+#### 4. Notificaciones en tiempo real (`apps/notifications`)
+- **`NotificationConsumer`** en `ws/notifications/`: WebSocket autenticado por JWT, con un canal de grupo por usuario (`user_<id>`) sobre Redis Channel Layer.
+- **`notify_user(...)`:** helper para emitir alertas desde cualquier parte del backend. Se envía al confirmar la transacción de base de datos y nunca interrumpe el flujo que lo origina.
+- **Eventos:** `credits_purchased` (acreditación de Mercado Pago), `payment_failed` (pago rechazado o cancelado) y `epub_ready` (exportación a EPUB), pensados para mostrarse como toasts en el front.
+- Sin migraciones, dependencias ni variables de entorno nuevas.
+
 ---
 
 ### Resumen de Endpoints Nuevos (Sprint 4)
@@ -49,6 +55,7 @@ Se finalizó el algoritmo de los e-books: ya se pueden **crear, editar y refinar
 | `GET` | `/api/ebooks/<id>/export/epub/` | Descarga del e-book en formato EPUB | Sí |
 | `POST` | `/api/auth/password-reset/request/` | Envía el código OTP al correo | No |
 | `POST` | `/api/auth/password-reset/confirm/` | Valida el OTP y cambia la contraseña | No |
+| `WS` | `/ws/notifications/?token=<jwt>` | Notificaciones push del usuario | Sí (JWT en query) |
 
 ---
 
@@ -63,6 +70,7 @@ Se finalizó el algoritmo de los e-books: ya se pueden **crear, editar y refinar
 - `documentacion-guia/workflow_billing_guia_actual.md`
 - `documentacion-guia/workflow_exportar_epub.md`
 - `documentacion-guia/workflow_recuperar_contrasena.md`
+- `documentacion-guia/workflow_notificaciones.md`
 
 ---
 

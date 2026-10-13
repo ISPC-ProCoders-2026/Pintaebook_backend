@@ -9,6 +9,7 @@ from rest_framework.views import APIView
 
 from apps.content import services as content_services
 from apps.ebooks.models import EbookMetadata
+from apps.notifications.services import notify_user
 
 from .services import EbookNotReadyError, build_epub
 
@@ -57,4 +58,13 @@ class EbookEpubExportView(APIView):
         filename = f'{slugify(ebook.title) or "ebook"}.epub'
         response = HttpResponse(epub_bytes, content_type='application/epub+zip')
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
+
+        notify_user(
+            request.user.id,
+            'epub_ready',
+            'EPUB listo',
+            f'Tu e-book "{ebook.title}" se exportó correctamente.',
+            level='success',
+            data={'ebook_id': str(ebook.id), 'filename': filename},
+        )
         return response
