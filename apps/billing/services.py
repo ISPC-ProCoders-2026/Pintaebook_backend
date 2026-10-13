@@ -4,6 +4,7 @@ import uuid
 from django.db import DatabaseError, transaction
 from rest_framework.exceptions import APIException
 
+from apps.notifications.services import notify_user
 from infrastructure.mercadopago_client import MercadoPagoClient
 from .models import (
     CreditBalance,
@@ -247,9 +248,23 @@ class BillingService:
 
                 tx.estado_transaccion = EstadoTransaccion.APROBADO
                 tx.save(update_fields=['estado_transaccion'])
-                BillingService._credit_purchase(
+                new_balance = BillingService._credit_purchase(
                     tx.usuario_id,
                     tx.paquete.cantidad_creditos,
+                )
+                notify_user(
+                    tx.usuario_id,
+                    'credits_purchased',
+                    'Créditos acreditados',
+                    f'Se acreditaron {tx.paquete.cantidad_creditos} créditos '
+                    f'del paquete {tx.paquete.nombre}.',
+                    level='success',
+                    data={
+                        'credits_added': tx.paquete.cantidad_creditos,
+                        'credits_available': new_balance,
+                        'package': tx.paquete.nombre,
+                        'transaction_id': tx.pk,
+                    },
                 )
                 logger.info(
                     'Pago %s aprobado: %s créditos para el usuario %s',
@@ -264,6 +279,19 @@ class BillingService:
             if new_state and tx.estado_transaccion == EstadoTransaccion.PENDIENTE:
                 tx.estado_transaccion = new_state
                 tx.save(update_fields=['estado_transaccion'])
+                notify_user(
+                    tx.usuario_id,
+                    'payment_failed',
+                    'Pago no completado',
+                    f'Tu pago del paquete {tx.paquete.nombre} no se completó. '
+                    'Podés intentarlo de nuevo.',
+                    level='error',
+                    data={
+                        'package': tx.paquete.nombre,
+                        'transaction_id': tx.pk,
+                        'status': new_state,
+                    },
+                )
                 return 'updated'
 
             # pending / in_process / refunded / etc.: sin cambios.
@@ -294,9 +322,9 @@ class BillingService:
         ]
 
     @staticmethod
-    def _credit_purchase(user_id, amount: int) -> None:
+    def _credit_purchase(user_id, amount: int) -> int:
         """
-        Suma los créditos comprados al saldo del usuario.
+        Suma los créditos comprados al saldo del usuario y devuelve el saldo nuevo.
 
         Debe llamarse dentro de un transaction.atomic(). No reutiliza
         refund_credits porque ese método saltea a los ADMIN: una compra
@@ -308,3 +336,4 @@ class BillingService:
         balance.credits_available += amount
         # last_updated va explícito: con update_fields, auto_now no se guarda solo.
         balance.save(update_fields=['credits_available', 'last_updated'])
+        return balance.credits_available
