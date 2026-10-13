@@ -45,7 +45,7 @@ pintaebook_backend/
 |   |-- content/           # Almacenamiento del árbol HTML en MongoDB y concurrencia optimista
 |   |-- ai_engine/         # Inferencia puntual, refinamiento de texto y auditoría
 |   |-- exporter/          # Exportación a EPUB (PDF: fase posterior)
-|   `-- notifications/     # Eventos y notificaciones (fase posterior)
+|   `-- notifications/     # Notificaciones push por WebSocket (NotificationConsumer, notify_user)
 |-- config/
 |   |-- settings/base.py   # Configuración global (incluye CHANNEL_LAYERS con Redis)
 |   |-- asgi.py            # Enrutamiento ASGI: HTTP + WebSocket
@@ -307,11 +307,40 @@ Todas las rutas protegidas requieren: `Authorization: Bearer <access_token>`
 | PATCH | `/api/ebooks/<id>/content/` | Guardar cambios de secciones | Gratis | Privado |
 | GET | `/api/ebooks/<id>/export/epub/` | Descarga el e-book como archivo `.epub` (solo `COMPLETED`) | Gratis | Privado |
 
-### WebSocket de Progreso
+### WebSockets
 
 | Protocolo | URL | Descripción |
 |---|---|---|
 | WS/WSS | `/ws/ebooks/<ebook_id>/progress/?token=<jwt>` | Canal de progreso en tiempo real para la generación asistida |
+| WS/WSS | `/ws/notifications/?token=<jwt>` | Notificaciones push del usuario (toasts): créditos acreditados, pago fallido, EPUB listo |
+
+### Notificaciones en tiempo real (`/ws/notifications/`)
+
+El usuario se conecta una vez al iniciar sesión y recibe, sin consultar, avisos de lo que pasa en su cuenta. Cada usuario tiene su propio canal (`user_<id>`) en Redis; varias pestañas reciben lo mismo.
+
+```json
+{
+  "type": "notification",
+  "event": "credits_purchased",
+  "level": "success",
+  "title": "Créditos acreditados",
+  "message": "Se acreditaron 500 créditos del paquete Estándar.",
+  "data": { "credits_added": 500, "credits_available": 1500 },
+  "timestamp": "2026-10-13T19:50:18.337631+00:00"
+}
+```
+
+| `event` | Cuándo | `level` |
+|---|---|---|
+| `credits_purchased` | Mercado Pago aprobó el pago y se acreditaron los créditos | `success` |
+| `payment_failed` | El pago fue rechazado o cancelado | `error` |
+| `epub_ready` | Se exportó un e-book a EPUB | `success` |
+
+- El token JWT va en `?token=`. Sin token válido la conexión se rechaza.
+- Los avisos **no se guardan**: si el usuario no tiene el socket abierto, se pierden. El saldo real siempre se consulta en `GET /api/billing/balance/`.
+- No requiere migración, dependencias ni variables nuevas.
+
+> Guía completa para el front (formato, eventos, servicio Angular y reconexión) en `documentacion-guia/workflow_notificaciones.md`.
 
 ### Motor IA (`/api/ai/`)
 
@@ -354,6 +383,7 @@ Todas las rutas protegidas requieren: `Authorization: Bearer <access_token>`
 4. **Campo IA:** La respuesta de `/api/ai/generate/` usa `generated_html` (no `html`). Los créditos actualizados vienen en `credits_available` (no `credits_remaining`).
 5. **Estado PROCESSING:** Los e-books recién creados tienen `status: "PROCESSING"`. No intentar abrir el editor hasta recibir el evento `status: "COMPLETED"` por WebSocket.
 6. **Recuperar contraseña:** el `200` de `/api/auth/password-reset/request/` no confirma que el correo exista. Mostrar siempre el mismo mensaje y deshabilitar "Reenviar" 60 s.
+7. **Notificaciones:** abrir `ws/notifications/?token=<jwt>` al iniciar sesión (y cerrarlo en el logout) y mostrar un toast por cada mensaje. Con `credits_purchased`, actualizar el saldo con `data.credits_available`. Reconectar con espera creciente si se corta.
 
 ---
 
