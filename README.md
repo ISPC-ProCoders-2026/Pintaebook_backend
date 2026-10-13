@@ -254,6 +254,10 @@ Todas las rutas protegidas requieren: `Authorization: Bearer <access_token>`
 | POST | `/api/auth/google/` | Login federado con Google OAuth | Público |
 | POST | `/api/auth/refresh/` | Renovar access token | Público |
 | GET | `/api/auth/me/` | Perfil del usuario autenticado | Privado |
+| POST | `/api/auth/password-reset/request/` | Envía un OTP de 6 dígitos al correo (responde igual exista o no la cuenta) | Público |
+| POST | `/api/auth/password-reset/confirm/` | Valida el OTP y fija la nueva contraseña | Público |
+
+> Detalle, límites de seguridad y configuración de correo en `documentacion-guia/workflow_recuperar_contrasena.md`.
 
 ### Billetera (`/api/billing/`)
 

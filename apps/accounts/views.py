@@ -6,8 +6,20 @@ from rest_framework.views import APIView
 # pyrefly: ignore [missing-import]
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 
-from .serializers import LoginSerializer, RegisterSerializer, UserSerializer,GoogleAuthSerializer
-from .services import generate_tokens, authenticate_google_user
+from .serializers import (
+    GoogleAuthSerializer,
+    LoginSerializer,
+    PasswordResetConfirmSerializer,
+    PasswordResetRequestSerializer,
+    RegisterSerializer,
+    UserSerializer,
+)
+from .services import (
+    authenticate_google_user,
+    confirm_password_reset,
+    generate_tokens,
+    request_password_reset,
+)
 
 
 # OAuth 2.0:
@@ -84,6 +96,53 @@ class LoginView(APIView):
                 **tokens,
                 "user": UserSerializer(user).data,
             },
+            status=status.HTTP_200_OK,
+        )
+
+
+class PasswordResetRequestView(APIView):
+    """
+    Paso 1 de la recuperación de contraseña: envía un OTP de 6 dígitos al correo.
+
+    Responde siempre 200 con el mismo mensaje, exista o no la cuenta, para no
+    revelar qué correos están registrados.
+    """
+    # Sin JWT: un header Authorization vencido no debe dar 401 acá.
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        request_password_reset(serializer.validated_data['email'])
+
+        return Response(
+            {'detail': 'Si el correo está registrado, te enviamos un código de verificación.'},
+            status=status.HTTP_200_OK,
+        )
+
+
+class PasswordResetConfirmView(APIView):
+    """
+    Paso 2: valida el OTP y establece la nueva contraseña.
+    No inicia sesión: el usuario debe hacer login después.
+    """
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        confirm_password_reset(
+            email=serializer.validated_data['email'],
+            code=serializer.validated_data['code'],
+            new_password=serializer.validated_data['new_password'],
+        )
+
+        return Response(
+            {'detail': 'Contraseña actualizada. Ya podés iniciar sesión.'},
             status=status.HTTP_200_OK,
         )
 

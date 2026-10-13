@@ -62,5 +62,18 @@ class RegisterSerializer(serializers.ModelSerializer):
         
         return User.objects.create_user(**validated_data)
 
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    code = serializers.RegexField(
+        r'^\d{6}$',
+        error_messages={'invalid': 'El código debe tener 6 dígitos.'},
+    )
+    new_password = serializers.CharField(write_only=True, min_length=8)
+
+
 class GoogleAuthSerializer(serializers.Serializer):
     id_token = serializers.CharField(required=True, error_messages={'required': 'El Id_token es obligatorio'}) #Token que envia el frontend luego de conectar con google.}

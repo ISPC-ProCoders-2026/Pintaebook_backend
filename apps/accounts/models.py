@@ -89,3 +89,30 @@ class User(AbstractUser):
 
     def __str__(self):
         return f"{self.email} ({self.role.nombre_rol if self.role else 'Sin Rol'})"
+
+
+class PasswordResetOTP(models.Model):
+    """Código de un solo uso (OTP) para recuperar la contraseña por correo.
+
+    Nunca se guarda el código en claro: solo su HMAC. Un código vale hasta
+    `expires_at`, se acepta una única vez (`used_at`) y se bloquea tras
+    demasiados intentos fallidos (`attempts`).
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='password_reset_otps',
+    )
+    code_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    attempts = models.PositiveSmallIntegerField(default=0)
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'password_reset_otps'
+        indexes = [models.Index(fields=['user', '-created_at'])]
+
+    def __str__(self):
+        return f"OTP de {self.user.email} ({self.created_at:%Y-%m-%d %H:%M})"

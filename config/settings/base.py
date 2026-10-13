@@ -24,6 +24,25 @@ ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1'])
 # Google Auth Settings
 GOOGLE_CLIENT_ID = env('GOOGLE_CLIENT_ID', default='')
 
+# Correo (recuperación de contraseña por OTP).
+# Por defecto el correo se imprime en consola (docker compose logs web): no
+# envía nada real. Para enviar de verdad, definir EMAIL_BACKEND y credenciales.
+EMAIL_BACKEND = env('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
+EMAIL_HOST = env('EMAIL_HOST', default='smtp.gmail.com')
+EMAIL_PORT = env.int('EMAIL_PORT', default=587)
+EMAIL_USE_TLS = env.bool('EMAIL_USE_TLS', default=True)
+EMAIL_HOST_USER = env('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
+EMAIL_TIMEOUT = 10  # un SMTP caído no debe colgar la petición
+DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default=EMAIL_HOST_USER or 'no-reply@pintaebook.local')
+
+# Envio por API HTTP con Brevo (django-anymail). Se usa con
+# EMAIL_BACKEND=anymail.backends.brevo.EmailBackend. Render free bloquea SMTP,
+# asi que en produccion es la via de envio. Debe ser una API key v3 (no la SMTP).
+ANYMAIL = {
+    'BREVO_API_KEY': env('BREVO_API_KEY', default=''),
+}
+
 
 # Application definition
 
@@ -43,6 +62,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'channels',
     'rest_framework_simplejwt',
+    'anymail',
 
     # Our apps
     'apps.accounts',
