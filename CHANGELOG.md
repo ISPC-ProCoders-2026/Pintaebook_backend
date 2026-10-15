@@ -35,6 +35,7 @@ Se finalizó el algoritmo de los e-books: ya se pueden **crear, editar y refinar
 - **Reglas:** vigencia de 10 minutos, uso único, máximo 5 intentos y espera de 60 segundos entre pedidos. El código se guarda cifrado (hash), nunca en claro.
 - **Envío de correo con Brevo** mediante `django-anymail` (API HTTP), porque el plan gratuito de Render bloquea el envío por SMTP.
 - **Migración nueva:** `accounts/0003_passwordresetotp` (tabla `password_reset_otps`).
+- **Correo de bienvenida:** al registrarse (email/contraseña o primer ingreso con Google) se envía un mensaje de bienvenida con Brevo. Un fallo de envío no impide el registro. Sin migraciones ni variables nuevas.
 
 #### 4. Notificaciones en tiempo real (`apps/notifications`)
 - **`NotificationConsumer`** en `ws/notifications/`: WebSocket autenticado por JWT, con un canal de grupo por usuario (`user_<id>`) sobre Redis Channel Layer.
