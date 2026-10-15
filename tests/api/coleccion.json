@@ -7,7 +7,7 @@
   "item": [
     {
       "name": "00 Preparacion",
-      "description": "Crea dos usuarios nuevos en cada corrida (A y B) para que la coleccion no dependa de datos previos. B se usa para probar aislamiento entre autores (TC-EB-03).",
+      "description": "Crea dos usuarios nuevos en cada corrida (A y B) para que la coleccion no dependa de datos previos. B se usa para probar aislamiento entre autores (TC-API-08).",
       "item": [
         {
           "name": "Registrar usuario A",
@@ -161,10 +161,10 @@
     },
     {
       "name": "01 Auth",
-      "description": "Cubre TC-04 (login exitoso) y TC-05 (contraseña incorrecta) + validaciones y acceso sin token.",
+      "description": "Cubre TC-API-01 (login exitoso) y TC-API-02 (contraseña incorrecta) + validaciones y acceso sin token.",
       "item": [
         {
-          "name": "TC-04 Login exitoso",
+          "name": "TC-API-01 Login exitoso",
           "event": [
             {
               "listen": "test",
@@ -210,11 +210,11 @@
                 }
               }
             },
-            "description": "TC-04. Verifica que se emita el JWT."
+            "description": "TC-API-01. Verifica que se emita el JWT."
           }
         },
         {
-          "name": "TC-05 Login con contraseña incorrecta",
+          "name": "TC-API-02 Login con contraseña incorrecta",
           "event": [
             {
               "listen": "test",
@@ -258,7 +258,7 @@
                 }
               }
             },
-            "description": "TC-05. No debe emitir token."
+            "description": "TC-API-02. No debe emitir token."
           }
         },
         {
@@ -920,7 +920,7 @@
           }
         },
         {
-          "name": "NEG TC-EB-03 IDOR: usuario B lee ebook de A (GET)",
+          "name": "NEG TC-API-08 IDOR: usuario B lee ebook de A (GET)",
           "event": [
             {
               "listen": "test",
@@ -954,11 +954,11 @@
                 ""
               ]
             },
-            "description": "TC-EB-03. El backend responde 404 para no revelar que el libro existe."
+            "description": "TC-API-08. El backend responde 404 para no revelar que el libro existe."
           }
         },
         {
-          "name": "NEG TC-EB-03 IDOR: usuario B edita ebook de A (PATCH)",
+          "name": "NEG TC-API-08 IDOR: usuario B edita ebook de A (PATCH)",
           "event": [
             {
               "listen": "test",
@@ -1411,7 +1411,7 @@
           }
         },
         {
-          "name": "NEG TC-EB-03 IDOR: usuario B lee contenido de A",
+          "name": "NEG TC-API-08 IDOR: usuario B lee contenido de A",
           "event": [
             {
               "listen": "test",
@@ -1451,7 +1451,7 @@
     },
     {
       "name": "04 Billing",
-      "description": "Paquetes, saldo, historial, checkout (Mercado Pago modo prueba) y webhook. Cubre TC-MP-05 y TC-MP-06.",
+      "description": "Paquetes, saldo, historial, checkout (Mercado Pago modo prueba) y webhook. Cubre TC-API-09 y TC-API-10.",
       "item": [
         {
           "name": "Listar paquetes",
@@ -1764,7 +1764,7 @@
           }
         },
         {
-          "name": "NEG TC-MP-06 Checkout SIN token",
+          "name": "NEG TC-API-10 Checkout SIN token",
           "event": [
             {
               "listen": "test",
@@ -1808,7 +1808,7 @@
                 }
               }
             },
-            "description": "TC-MP-06. Debe rechazarse sin procesar la orden."
+            "description": "TC-API-10. Debe rechazarse sin procesar la orden."
           }
         },
         {
@@ -1858,7 +1858,7 @@
           }
         },
         {
-          "name": "NEG TC-MP-05 Webhook con firma falsa e ID inválido",
+          "name": "NEG TC-API-09 Webhook con firma falsa e ID inválido",
           "event": [
             {
               "listen": "test",
@@ -1877,6 +1877,10 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
+              },
+              {
+                "key": "x-signature",
+                "value": "ts=1700000000,v1=firma-falsa-manipulada"
               }
             ],
             "url": {
@@ -1900,11 +1904,11 @@
                 }
               }
             },
-            "description": "TC-MP-05. Cabecera x-signature manipulada. Se rechaza por ID inválido."
+            "description": "TC-API-09. Con cabecera x-signature manipulada. Se rechaza por ID inválido."
           }
         },
         {
-          "name": "NEG TC-MP-05 Webhook con firma falsa y pago inexistente",
+          "name": "NEG TC-API-09 Webhook con firma falsa y pago inexistente",
           "event": [
             {
               "listen": "test",
@@ -1924,6 +1928,10 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
+              },
+              {
+                "key": "x-signature",
+                "value": "ts=1700000000,v1=firma-falsa-manipulada"
               }
             ],
             "url": {
@@ -1947,11 +1955,11 @@
                 }
               }
             },
-            "description": "TC-MP-05. El backend no valida x-signature: consulta el pago a Mercado Pago y, al no existir, responde 404. Lo importante: no acredita nada."
+            "description": "TC-API-09. El backend no valida x-signature: consulta el pago a Mercado Pago y, al no existir, responde 404. Lo importante: no acredita nada."
           }
         },
         {
-          "name": "Saldo sin cambios tras webhooks falsos (TC-MP-05)",
+          "name": "Saldo sin cambios tras webhooks falsos (TC-API-09)",
           "event": [
             {
               "listen": "test",
@@ -2026,7 +2034,7 @@
           }
         },
         {
-          "name": "NEG TC-EB-03 IDOR: usuario B elimina ebook de A",
+          "name": "NEG TC-API-08 IDOR: usuario B elimina ebook de A",
           "event": [
             {
               "listen": "test",
