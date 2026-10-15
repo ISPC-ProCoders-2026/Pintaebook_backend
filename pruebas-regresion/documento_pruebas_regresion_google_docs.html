@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Documento de Pruebas de Regresión — PintaEbook</title>
+</head>
+<body style="font-family: Arial, sans-serif; font-size: 11pt; color: #202124; max-width: 900px; margin: 24px auto; line-height: 1.45;">
+
+<h1 style="font-size: 22pt; margin: 0 0 4px 0;">Documento de Pruebas de Regresión — PintaEbook</h1>
+<p style="margin: 0 0 18px 0; color: #5f6368;"><i>Aseguramiento de Calidad y Verificación de Flujos Críticos — Sprint 4</i></p>
+
+<h2 style="font-size: 15pt; margin: 20px 0 8px 0;">Información General</h2>
+<table style="border-collapse: collapse; width: 100%;">
+  <tr>
+    <td style="border: 1px solid #999; padding: 6px 10px; background: #e8eaf6; width: 28%;"><b>Proyecto</b></td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">PintaEbook (Angular + DRF + PostgreSQL / MongoDB)</td>
+  </tr>
+  <tr>
+    <td style="border: 1px solid #999; padding: 6px 10px; background: #e8eaf6;"><b>Fecha de ejecución</b></td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">13/10/2026</td>
+  </tr>
+  <tr>
+    <td style="border: 1px solid #999; padding: 6px 10px; background: #e8eaf6;"><b>Responsables de QA</b></td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">(completar)</td>
+  </tr>
+  <tr>
+    <td style="border: 1px solid #999; padding: 6px 10px; background: #e8eaf6;"><b>Entorno</b></td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Local (Docker Compose): backend, PostgreSQL y Redis; MongoDB Atlas y OpenRouter reales</td>
+  </tr>
+  <tr>
+    <td style="border: 1px solid #999; padding: 6px 10px; background: #e8eaf6;"><b>Rama probada</b></td>
+    <td style="border: 1px solid #999; padding: 6px 10px;"><code>francisco</code> (PR #24 hacia <code>develop</code>)</td>
+  </tr>
+  <tr>
+    <td style="border: 1px solid #999; padding: 6px 10px; background: #e8eaf6;"><b>Tablero / Issue</b></td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">
+      <a href="https://github.com/ISPC-ProCoders-2026/PintaEbook/issues/164">Prueba regresión - Notificaciones con WebSocket</a><br>
+      <a href="https://github.com/orgs/ISPC-ProCoders-2026/projects/5">ISPC-ProCoders-2026 / PintaEbook Projects</a>
+    </td>
+  </tr>
+</table>
+
+<h2 style="font-size: 15pt; margin: 24px 0 8px 0;">1. Alcance</h2>
+<ul>
+  <li><b>Feature implementada:</b> notificaciones en tiempo real por WebSocket (<code>ws/notifications/</code>).</li>
+  <li><b>Qué se verificó:</b> que la feature no rompe los flujos existentes: autenticación, e-books con IA, compra de créditos con Mercado Pago, exportación a EPUB y recuperación de contraseña.</li>
+</ul>
+
+<h2 style="font-size: 15pt; margin: 24px 0 8px 0;">2. Lista de pruebas de regresión</h2>
+<table style="border-collapse: collapse; width: 100%;">
+  <tr style="background: #3f51b5; color: #ffffff;">
+    <th style="border: 1px solid #999; padding: 6px 10px; text-align: left; width: 9%;">ID</th>
+    <th style="border: 1px solid #999; padding: 6px 10px; text-align: left; width: 19%;">Flujo</th>
+    <th style="border: 1px solid #999; padding: 6px 10px; text-align: left;">Prueba</th>
+    <th style="border: 1px solid #999; padding: 6px 10px; text-align: left; width: 14%;">Resultado</th>
+  </tr>
+  <tr>
+    <td style="border: 1px solid #999; padding: 6px 10px;">RG-01</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Autenticación</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Registro, login y perfil (<code>/auth/me/</code>)</td>
+    <td style="border: 1px solid #999; padding: 6px 10px; color: #137333;"><b>✔ OK</b></td>
+  </tr>
+  <tr style="background: #f5f5f5;">
+    <td style="border: 1px solid #999; padding: 6px 10px;">RG-02</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">E-books</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Crear e-book con IA: responde 201 inmediato y llega a COMPLETED (28 s) con progreso por WebSocket</td>
+    <td style="border: 1px solid #999; padding: 6px 10px; color: #137333;"><b>✔ OK</b></td>
+  </tr>
+  <tr>
+    <td style="border: 1px solid #999; padding: 6px 10px;">RG-03</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Créditos</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Débito de 100 créditos al crear (1000 → 900)</td>
+    <td style="border: 1px solid #999; padding: 6px 10px; color: #137333;"><b>✔ OK</b></td>
+  </tr>
+  <tr style="background: #f5f5f5;">
+    <td style="border: 1px solid #999; padding: 6px 10px;">RG-04</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">E-books</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Lectura del árbol de capítulos y secciones</td>
+    <td style="border: 1px solid #999; padding: 6px 10px; color: #137333;"><b>✔ OK</b></td>
+  </tr>
+  <tr>
+    <td style="border: 1px solid #999; padding: 6px 10px;">RG-05</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">E-books</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Edición de una sección y persistencia del cambio</td>
+    <td style="border: 1px solid #999; padding: 6px 10px; color: #137333;"><b>✔ OK</b></td>
+  </tr>
+  <tr style="background: #f5f5f5;">
+    <td style="border: 1px solid #999; padding: 6px 10px;">RG-06</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">E-books</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Listado con búsqueda</td>
+    <td style="border: 1px solid #999; padding: 6px 10px; color: #137333;"><b>✔ OK</b></td>
+  </tr>
+  <tr>
+    <td style="border: 1px solid #999; padding: 6px 10px;">RG-07</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">E-books / IA</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Refinar una sección con IA (descuenta 10 créditos)</td>
+    <td style="border: 1px solid #999; padding: 6px 10px; color: #137333;"><b>✔ OK</b></td>
+  </tr>
+  <tr style="background: #f5f5f5;">
+    <td style="border: 1px solid #999; padding: 6px 10px;">RG-08</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">E-books</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Borrado en PostgreSQL y MongoDB</td>
+    <td style="border: 1px solid #999; padding: 6px 10px; color: #137333;"><b>✔ OK</b></td>
+  </tr>
+  <tr>
+    <td style="border: 1px solid #999; padding: 6px 10px;">RG-09</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Compra de créditos</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Saldo, catálogo de paquetes e historial de compras</td>
+    <td style="border: 1px solid #999; padding: 6px 10px; color: #137333;"><b>✔ OK</b></td>
+  </tr>
+  <tr style="background: #f5f5f5;">
+    <td style="border: 1px solid #999; padding: 6px 10px;">RG-10</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Mercado Pago</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Pago aprobado acredita créditos y notifica; webhook repetido no duplica (*)</td>
+    <td style="border: 1px solid #999; padding: 6px 10px; color: #137333;"><b>✔ OK</b></td>
+  </tr>
+  <tr>
+    <td style="border: 1px solid #999; padding: 6px 10px;">RG-11</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Mercado Pago</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Pago rechazado no acredita y notifica <code>payment_failed</code>; pendiente no notifica (*)</td>
+    <td style="border: 1px solid #999; padding: 6px 10px; color: #137333;"><b>✔ OK</b></td>
+  </tr>
+  <tr style="background: #f5f5f5;">
+    <td style="border: 1px solid #999; padding: 6px 10px;">RG-12</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Exportación</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">EPUB válido y notificación <code>epub_ready</code> por WebSocket</td>
+    <td style="border: 1px solid #999; padding: 6px 10px; color: #137333;"><b>✔ OK</b></td>
+  </tr>
+  <tr>
+    <td style="border: 1px solid #999; padding: 6px 10px;">RG-13</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">WebSocket</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Rechazo sin token o con token inválido; un usuario no recibe avisos de otro</td>
+    <td style="border: 1px solid #999; padding: 6px 10px; color: #137333;"><b>✔ OK</b></td>
+  </tr>
+  <tr style="background: #f5f5f5;">
+    <td style="border: 1px solid #999; padding: 6px 10px;">RG-14</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Recuperación de contraseña</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Solicitud de código con cuenta inexistente: respuesta genérica 200</td>
+    <td style="border: 1px solid #999; padding: 6px 10px; color: #137333;"><b>✔ OK</b></td>
+  </tr>
+  <tr>
+    <td style="border: 1px solid #999; padding: 6px 10px;">RG-15</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Suite automática</td>
+    <td style="border: 1px solid #999; padding: 6px 10px;">Ejecución completa de <code>manage.py test</code></td>
+    <td style="border: 1px solid #999; padding: 6px 10px; color: #137333;"><b>✔ 143 / 143 OK</b></td>
+  </tr>
+</table>
+<p style="margin: 6px 0 0 0; font-size: 10pt; color: #5f6368;">(*) Verificado con tests automáticos y la pasarela simulada, no con una compra real.</p>
+
+<h2 style="font-size: 15pt; margin: 24px 0 8px 0;">3. Resultado</h2>
+<p><b style="color: #137333;">Aprobada.</b> 15 de 15 pruebas OK, sin regresiones. Los datos de prueba se eliminaron al terminar.</p>
+
+<h2 style="font-size: 15pt; margin: 24px 0 8px 0;">4. Limitaciones</h2>
+<ul>
+  <li>No se hizo una <b>compra real</b> con Mercado Pago; está cubierta con tests automáticos.</li>
+  <li>El <b>WebSocket en Render (producción)</b> no se probó; se verifica tras el despliegue.</li>
+  <li>Los toasts los implementa el equipo de front.</li>
+</ul>
+
+<h2 style="font-size: 15pt; margin: 24px 0 8px 0;">Evidencia</h2>
+<p>Informe detallado: <code>pruebas-regresion/regresion_notificaciones_websocket.md</code> (repositorio del backend).</p>
+
+</body>
+</html>

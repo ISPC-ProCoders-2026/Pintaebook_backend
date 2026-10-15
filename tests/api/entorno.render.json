@@ -1,0 +1,97 @@
+{
+  "id": "PintaEbook - Render",
+  "name": "PintaEbook - Render",
+  "values": [
+    {
+      "key": "baseUrl",
+      "value": "https://REEMPLAZAR-por-url-de-render.onrender.com",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "password",
+      "value": "Test#2026Segura",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "email",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "email2",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "token2",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "ebookId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "chapterId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "sectionId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "paqueteId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "creditsInicial",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "creditsAntesWebhook",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "pollTries",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    }
+  ],
+  "_postman_variable_scope": "environment"
+}

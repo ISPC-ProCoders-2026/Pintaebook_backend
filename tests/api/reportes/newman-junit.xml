@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="PintaEbook API - Caja negra" tests="57" time="3.895">
+  <testsuite name="00 Preparacion / Registrar usuario A" id="104ab846-5ebc-4a09-9cfa-1dc27dbc40fc" timestamp="2026-10-15T05:13:54.221Z" tests="4" failures="0" errors="0" time="0.369">
+    <testcase name="Registro devuelve 201" time="0.369" classname="00PreparacionRegistrarUsuarioA"/>
+    <testcase name="Trae access, refresh y user" time="0.369" classname="00PreparacionRegistrarUsuarioA"/>
+    <testcase name="El rol asignado es AUTOR" time="0.369" classname="00PreparacionRegistrarUsuarioA"/>
+    <testcase name="La respuesta no expone la contraseña" time="0.369" classname="00PreparacionRegistrarUsuarioA"/>
+  </testsuite>
+  <testsuite name="00 Preparacion / Registrar usuario B" id="a73120fc-17a4-4c2d-9c6c-08f0964730f1" timestamp="2026-10-15T05:13:54.221Z" tests="1" failures="0" errors="0" time="0.324">
+    <testcase name="Registro devuelve 201" time="0.324" classname="00PreparacionRegistrarUsuarioB"/>
+  </testsuite>
+  <testsuite name="00 Preparacion / Saldo inicial del usuario A" id="353ac32c-8808-44b5-9771-6e9c4ea032f9" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.023">
+    <testcase name="Código de estado 200" time="0.023" classname="00PreparacionSaldoInicialDelUsuarioA"/>
+    <testcase name="Arranca con créditos gratis (> 0)" time="0.023" classname="00PreparacionSaldoInicialDelUsuarioA"/>
+  </testsuite>
+  <testsuite name="01 Auth / TC-04 Login exitoso" id="2a32ebd2-e9f4-44c3-b79b-2fd55ea66bf0" timestamp="2026-10-15T05:13:54.221Z" tests="4" failures="0" errors="0" time="0.319">
+    <testcase name="Login devuelve 200" time="0.319" classname="01AuthTc04LoginExitoso"/>
+    <testcase name="Responde en menos de 3 s" time="0.319" classname="01AuthTc04LoginExitoso"/>
+    <testcase name="Contrato: access y refresh son strings" time="0.319" classname="01AuthTc04LoginExitoso"/>
+    <testcase name="Contrato: user con id, email y role" time="0.319" classname="01AuthTc04LoginExitoso"/>
+  </testsuite>
+  <testsuite name="01 Auth / TC-05 Login con contraseña incorrecta" id="3e71fad0-77a5-46b7-98f2-c91e400ba149" timestamp="2026-10-15T05:13:54.221Z" tests="3" failures="0" errors="0" time="0.314">
+    <testcase name="Credenciales inválidas devuelve 401" time="0.314" classname="01AuthTc05LoginConContrasenaIncorrecta"/>
+    <testcase name="Respuesta con 'detail' (mensaje estructurado)" time="0.314" classname="01AuthTc05LoginConContrasenaIncorrecta"/>
+    <testcase name="No se emite token" time="0.314" classname="01AuthTc05LoginConContrasenaIncorrecta"/>
+  </testsuite>
+  <testsuite name="01 Auth / Login con payload inválido (email mal formado)" id="30b93796-61d3-4905-a858-7670d2daa7c9" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.010">
+    <testcase name="Código de estado 400" time="0.010" classname="01AuthLoginConPayloadInvalidoEmailMalFormado"/>
+    <testcase name="Error estructurado: el campo 'email' trae mensajes" time="0.010" classname="01AuthLoginConPayloadInvalidoEmailMalFormado"/>
+  </testsuite>
+  <testsuite name="01 Auth / Login con campos faltantes" id="556a9522-9dce-424e-a42c-34627f05ea9a" timestamp="2026-10-15T05:13:54.221Z" tests="3" failures="0" errors="0" time="0.010">
+    <testcase name="Código de estado 400" time="0.010" classname="01AuthLoginConCamposFaltantes"/>
+    <testcase name="Error estructurado: el campo 'email' trae mensajes" time="0.010" classname="01AuthLoginConCamposFaltantes"/>
+    <testcase name="Error estructurado: el campo 'password' trae mensajes" time="0.010" classname="01AuthLoginConCamposFaltantes"/>
+  </testsuite>
+  <testsuite name="01 Auth / Registro con email duplicado" id="8852914b-eb62-4987-b1a3-3f95e0aaca33" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.024">
+    <testcase name="Código de estado 400" time="0.024" classname="01AuthRegistroConEmailDuplicado"/>
+    <testcase name="Error estructurado: el campo 'email' trae mensajes" time="0.024" classname="01AuthRegistroConEmailDuplicado"/>
+  </testsuite>
+  <testsuite name="01 Auth / Registro con contraseña corta" id="fd817f49-77cb-4649-a039-316b0cfda995" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.027">
+    <testcase name="Código de estado 400" time="0.027" classname="01AuthRegistroConContrasenaCorta"/>
+    <testcase name="Error estructurado: el campo 'password' trae mensajes" time="0.027" classname="01AuthRegistroConContrasenaCorta"/>
+  </testsuite>
+  <testsuite name="01 Auth / Perfil (me) con token" id="8df2dd20-a79d-4b89-be38-4f97762c7dcc" timestamp="2026-10-15T05:13:54.221Z" tests="3" failures="0" errors="0" time="0.023">
+    <testcase name="Código de estado 200" time="0.023" classname="01AuthPerfilMeConToken"/>
+    <testcase name="Contrato: id, email y role" time="0.023" classname="01AuthPerfilMeConToken"/>
+    <testcase name="Es el usuario autenticado" time="0.023" classname="01AuthPerfilMeConToken"/>
+  </testsuite>
+  <testsuite name="01 Auth / Perfil (me) SIN token" id="2d3ecb44-2e40-47a9-adf8-70ac59ccc59e" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.009">
+    <testcase name="Sin token devuelve 401" time="0.009" classname="01AuthPerfilMeSinToken"/>
+    <testcase name="Respuesta con 'detail' (mensaje estructurado)" time="0.009" classname="01AuthPerfilMeSinToken"/>
+  </testsuite>
+  <testsuite name="02 Ebooks / Crear ebook (POST)" id="f4767fc7-f05d-4931-a0aa-43a7cf7f47c8" timestamp="2026-10-15T05:13:54.221Z" tests="9" failures="0" errors="0" time="0.032">
+    <testcase name="Crear devuelve 201" time="0.032" classname="02EbooksCrearEbookPost"/>
+    <testcase name="Responde en menos de 3 s" time="0.032" classname="02EbooksCrearEbookPost"/>
+    <testcase name="body: campo 'ebook_id' (string)" time="0.032" classname="02EbooksCrearEbookPost"/>
+    <testcase name="body: campo 'title' (string)" time="0.032" classname="02EbooksCrearEbookPost"/>
+    <testcase name="body: campo 'description' (string)" time="0.032" classname="02EbooksCrearEbookPost"/>
+    <testcase name="body: campo 'status' (string)" time="0.032" classname="02EbooksCrearEbookPost"/>
+    <testcase name="body: campo 'created_at' (string)" time="0.032" classname="02EbooksCrearEbookPost"/>
+    <testcase name="body: campo 'updated_at' (string)" time="0.032" classname="02EbooksCrearEbookPost"/>
+    <testcase name="Nace en estado PROCESSING" time="0.032" classname="02EbooksCrearEbookPost"/>
+  </testsuite>
+  <testsuite name="02 Ebooks / Obtener ebook (GET detalle)" id="192039e0-5155-4e7a-b48d-848232aa4b63" timestamp="2026-10-15T05:13:54.221Z" tests="8" failures="0" errors="0" time="0.024">
+    <testcase name="Código de estado 200" time="0.024" classname="02EbooksObtenerEbookGetDetalle"/>
+    <testcase name="body: campo 'ebook_id' (string)" time="0.024" classname="02EbooksObtenerEbookGetDetalle"/>
+    <testcase name="body: campo 'title' (string)" time="0.024" classname="02EbooksObtenerEbookGetDetalle"/>
+    <testcase name="body: campo 'description' (string)" time="0.024" classname="02EbooksObtenerEbookGetDetalle"/>
+    <testcase name="body: campo 'status' (string)" time="0.024" classname="02EbooksObtenerEbookGetDetalle"/>
+    <testcase name="body: campo 'created_at' (string)" time="0.024" classname="02EbooksObtenerEbookGetDetalle"/>
+    <testcase name="body: campo 'updated_at' (string)" time="0.024" classname="02EbooksObtenerEbookGetDetalle"/>
+    <testcase name="Es el ebook creado" time="0.024" classname="02EbooksObtenerEbookGetDetalle"/>
+  </testsuite>
+  <testsuite name="02 Ebooks / Listar ebooks (GET lista paginada)" id="24d53cf3-16a8-473a-a053-de6e946fd75d" timestamp="2026-10-15T05:13:54.221Z" tests="3" failures="0" errors="0" time="0.028">
+    <testcase name="Código de estado 200" time="0.028" classname="02EbooksListarEbooksGetListaPaginada"/>
+    <testcase name="Paginación: count, next, previous, results" time="0.028" classname="02EbooksListarEbooksGetListaPaginada"/>
+    <testcase name="El ebook creado aparece en el listado" time="0.028" classname="02EbooksListarEbooksGetListaPaginada"/>
+  </testsuite>
+  <testsuite name="02 Ebooks / Editar parcialmente ebook (PATCH)" id="a3150e0a-14c7-4f68-94a3-1c3f38ec10eb" timestamp="2026-10-15T05:13:54.221Z" tests="3" failures="0" errors="0" time="0.027">
+    <testcase name="Código de estado 200" time="0.027" classname="02EbooksEditarParcialmenteEbookPatch"/>
+    <testcase name="El título cambió" time="0.027" classname="02EbooksEditarParcialmenteEbookPatch"/>
+    <testcase name="La descripción se conservó" time="0.027" classname="02EbooksEditarParcialmenteEbookPatch"/>
+  </testsuite>
+  <testsuite name="02 Ebooks / Reemplazar ebook (PUT)" id="dcc27935-2d34-45ad-bea0-5dc43fcae462" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.027">
+    <testcase name="Código de estado 200" time="0.027" classname="02EbooksReemplazarEbookPut"/>
+    <testcase name="Título y descripción reemplazados" time="0.027" classname="02EbooksReemplazarEbookPut"/>
+  </testsuite>
+  <testsuite name="02 Ebooks / NEG Crear ebook con payload inválido" id="8e7eceee-97a1-4cfe-aa58-d0ee90faf60b" timestamp="2026-10-15T05:13:54.221Z" tests="3" failures="0" errors="0" time="0.024">
+    <testcase name="Payload inválido devuelve 400" time="0.024" classname="02EbooksNegCrearEbookConPayloadInvalido"/>
+    <testcase name="Error estructurado: el campo 'title' trae mensajes" time="0.024" classname="02EbooksNegCrearEbookConPayloadInvalido"/>
+    <testcase name="Error estructurado: el campo 'quantity_chapters' trae mensajes" time="0.024" classname="02EbooksNegCrearEbookConPayloadInvalido"/>
+  </testsuite>
+  <testsuite name="02 Ebooks / NEG Crear ebook SIN token" id="292b8596-f37b-4d5d-b184-ebc44d738e60" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.009">
+    <testcase name="Sin token devuelve 401" time="0.009" classname="02EbooksNegCrearEbookSinToken"/>
+    <testcase name="Respuesta con 'detail' (mensaje estructurado)" time="0.009" classname="02EbooksNegCrearEbookSinToken"/>
+  </testsuite>
+  <testsuite name="02 Ebooks / NEG Listar ebooks SIN token" id="3377bb41-91fb-4fe3-8d51-c040ea56615e" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.009">
+    <testcase name="Código de estado 401" time="0.009" classname="02EbooksNegListarEbooksSinToken"/>
+    <testcase name="Respuesta con 'detail' (mensaje estructurado)" time="0.009" classname="02EbooksNegListarEbooksSinToken"/>
+  </testsuite>
+  <testsuite name="02 Ebooks / NEG Obtener ebook SIN token" id="dd678774-86e2-4de7-8cb3-f38d59409b4a" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.010">
+    <testcase name="Código de estado 401" time="0.010" classname="02EbooksNegObtenerEbookSinToken"/>
+    <testcase name="Respuesta con 'detail' (mensaje estructurado)" time="0.010" classname="02EbooksNegObtenerEbookSinToken"/>
+  </testsuite>
+  <testsuite name="02 Ebooks / NEG TC-EB-03 IDOR: usuario B lee ebook de A (GET)" id="fd5fce1c-e837-471b-9f29-85417f9a0f04" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.024">
+    <testcase name="Denegado (403 o 404)" time="0.024" classname="02EbooksNegTcEb03IdorUsuarioBLeeEbookDeAGet"/>
+    <testcase name="No filtra datos del ebook" time="0.024" classname="02EbooksNegTcEb03IdorUsuarioBLeeEbookDeAGet"/>
+  </testsuite>
+  <testsuite name="02 Ebooks / NEG TC-EB-03 IDOR: usuario B edita ebook de A (PATCH)" id="dec08ba5-adb3-4b64-9f29-bf95c2166070" timestamp="2026-10-15T05:13:54.221Z" tests="1" failures="0" errors="0" time="0.025">
+    <testcase name="Denegado (403 o 404)" time="0.025" classname="02EbooksNegTcEb03IdorUsuarioBEditaEbookDeAPatch"/>
+  </testsuite>
+  <testsuite name="02 Ebooks / NEG Ebook inexistente" id="76f7b777-a3b9-4229-82e5-7554c18f5ffc" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.023">
+    <testcase name="Código de estado 404" time="0.023" classname="02EbooksNegEbookInexistente"/>
+    <testcase name="Respuesta con 'detail' (mensaje estructurado)" time="0.023" classname="02EbooksNegEbookInexistente"/>
+  </testsuite>
+  <testsuite name="03 Contenido / Esperar generación (polling hasta COMPLETED)" id="94ebf415-695d-4b73-b684-8025ba6f4668" timestamp="2026-10-15T05:13:54.221Z" tests="1" failures="0" errors="0" time="0.024">
+    <testcase name="La generación terminó en COMPLETED" time="0.023" classname="03ContenidoEsperarGeneracionPollingHastaCompleted"/>
+  </testsuite>
+  <testsuite name="03 Contenido / Obtener contenido (GET)" id="82c69361-a90b-49f8-9e87-b23e49c302a7" timestamp="2026-10-15T05:13:54.221Z" tests="3" failures="0" errors="0" time="0.067">
+    <testcase name="Código de estado 200" time="0.067" classname="03ContenidoObtenerContenidoGet"/>
+    <testcase name="Contrato: ebook_id, chapters y updated_at" time="0.067" classname="03ContenidoObtenerContenidoGet"/>
+    <testcase name="Cada capítulo trae id, title y sections" time="0.067" classname="03ContenidoObtenerContenidoGet"/>
+  </testsuite>
+  <testsuite name="03 Contenido / Editar sección (PATCH)" id="1e0264d7-6333-44bb-b4ca-5b3113ce023a" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.118">
+    <testcase name="Código de estado 200" time="0.118" classname="03ContenidoEditarSeccionPatch"/>
+    <testcase name="Devuelve ebook_id y updated_at" time="0.118" classname="03ContenidoEditarSeccionPatch"/>
+  </testsuite>
+  <testsuite name="03 Contenido / Verificar edición (GET)" id="e94e8bc0-d472-4b59-9968-a7213cac1010" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.068">
+    <testcase name="Código de estado 200" time="0.068" classname="03ContenidoVerificarEdicionGet"/>
+    <testcase name="El HTML editado quedó persistido" time="0.068" classname="03ContenidoVerificarEdicionGet"/>
+  </testsuite>
+  <testsuite name="03 Contenido / NEG Editar contenido con body vacío" id="0520793f-29ab-4019-ac8a-cc19a39de52a" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.023">
+    <testcase name="Código de estado 400" time="0.023" classname="03ContenidoNegEditarContenidoConBodyVacio"/>
+    <testcase name="Error estructurado: el campo 'non_field_errors' trae mensajes" time="0.023" classname="03ContenidoNegEditarContenidoConBodyVacio"/>
+  </testsuite>
+  <testsuite name="03 Contenido / NEG Editar contenido con UUID inválido" id="801898dc-178b-48bc-986e-b60a8bc969d0" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.023">
+    <testcase name="Código de estado 400" time="0.023" classname="03ContenidoNegEditarContenidoConUuidInvalido"/>
+    <testcase name="Error por campo dentro de sections" time="0.023" classname="03ContenidoNegEditarContenidoConUuidInvalido"/>
+  </testsuite>
+  <testsuite name="03 Contenido / NEG Obtener contenido SIN token" id="ebe64707-d251-4f7d-8382-52e994236de1" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.010">
+    <testcase name="Código de estado 401" time="0.010" classname="03ContenidoNegObtenerContenidoSinToken"/>
+    <testcase name="Respuesta con 'detail' (mensaje estructurado)" time="0.010" classname="03ContenidoNegObtenerContenidoSinToken"/>
+  </testsuite>
+  <testsuite name="03 Contenido / NEG Editar contenido SIN token" id="baf7b4dc-e722-4bef-95c1-31458f0f9b53" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.010">
+    <testcase name="Código de estado 401" time="0.010" classname="03ContenidoNegEditarContenidoSinToken"/>
+    <testcase name="Respuesta con 'detail' (mensaje estructurado)" time="0.010" classname="03ContenidoNegEditarContenidoSinToken"/>
+  </testsuite>
+  <testsuite name="03 Contenido / NEG TC-EB-03 IDOR: usuario B lee contenido de A" id="18579750-a1cd-4176-8ca0-f5ed4c9987d3" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.023">
+    <testcase name="Denegado (403 o 404)" time="0.023" classname="03ContenidoNegTcEb03IdorUsuarioBLeeContenidoDeA"/>
+    <testcase name="No filtra capítulos" time="0.023" classname="03ContenidoNegTcEb03IdorUsuarioBLeeContenidoDeA"/>
+  </testsuite>
+  <testsuite name="04 Billing / Listar paquetes" id="6686132f-001d-4243-8ab3-f658e7cc6f8d" timestamp="2026-10-15T05:13:54.221Z" tests="3" failures="0" errors="0" time="0.024">
+    <testcase name="Código de estado 200" time="0.024" classname="04BillingListarPaquetes"/>
+    <testcase name="Es una lista no vacía" time="0.024" classname="04BillingListarPaquetes"/>
+    <testcase name="Cada paquete: id, nombre, cantidad_creditos, precio" time="0.024" classname="04BillingListarPaquetes"/>
+  </testsuite>
+  <testsuite name="04 Billing / Saldo después de crear el ebook" id="8e4a3645-975b-424b-8398-e4119ae200ee" timestamp="2026-10-15T05:13:54.221Z" tests="3" failures="0" errors="0" time="0.024">
+    <testcase name="Código de estado 200" time="0.024" classname="04BillingSaldoDespuesDeCrearElEbook"/>
+    <testcase name="Contrato: credits_available (number) y last_updated (string)" time="0.024" classname="04BillingSaldoDespuesDeCrearElEbook"/>
+    <testcase name="Se descontaron 100 créditos por el ebook" time="0.024" classname="04BillingSaldoDespuesDeCrearElEbook"/>
+  </testsuite>
+  <testsuite name="04 Billing / Crear checkout (POST)" id="467ca7af-4a44-4ef6-99d5-698296955e62" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.742">
+    <testcase name="Código de estado 201" time="0.742" classname="04BillingCrearCheckoutPost"/>
+    <testcase name="Devuelve init_point (URL de pago)" time="0.742" classname="04BillingCrearCheckoutPost"/>
+  </testsuite>
+  <testsuite name="04 Billing / Historial de compras" id="8b777196-fce8-4792-8c82-2d3356b8abb5" timestamp="2026-10-15T05:13:54.221Z" tests="3" failures="0" errors="0" time="0.028">
+    <testcase name="Código de estado 200" time="0.028" classname="04BillingHistorialDeCompras"/>
+    <testcase name="Paginación y al menos 1 transacción (la pendiente)" time="0.028" classname="04BillingHistorialDeCompras"/>
+    <testcase name="Cada fila: id, paquete, monto, estado, fecha" time="0.028" classname="04BillingHistorialDeCompras"/>
+  </testsuite>
+  <testsuite name="04 Billing / NEG Historial con estado inválido" id="214b08e7-50e6-4c7b-aec8-1b7355653cf2" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.023">
+    <testcase name="Código de estado 400" time="0.023" classname="04BillingNegHistorialConEstadoInvalido"/>
+    <testcase name="Error estructurado: el campo 'estado' trae mensajes" time="0.023" classname="04BillingNegHistorialConEstadoInvalido"/>
+  </testsuite>
+  <testsuite name="04 Billing / NEG Checkout con paquete_id no numérico" id="03bd26e0-3a0f-4289-bd9d-b16baa02384c" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.022">
+    <testcase name="Código de estado 400" time="0.022" classname="04BillingNegCheckoutConPaqueteIdNoNumerico"/>
+    <testcase name="Error estructurado: el campo 'paquete_id' trae mensajes" time="0.022" classname="04BillingNegCheckoutConPaqueteIdNoNumerico"/>
+  </testsuite>
+  <testsuite name="04 Billing / NEG Checkout con paquete inexistente" id="aaaef247-ea4b-484b-a6b3-8ba9d85e2860" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.024">
+    <testcase name="Código de estado 404" time="0.024" classname="04BillingNegCheckoutConPaqueteInexistente"/>
+    <testcase name="Respuesta con 'detail' (mensaje estructurado)" time="0.024" classname="04BillingNegCheckoutConPaqueteInexistente"/>
+  </testsuite>
+  <testsuite name="04 Billing / NEG TC-MP-06 Checkout SIN token" id="d5fbd908-4c95-4726-8021-156b11adca0b" timestamp="2026-10-15T05:13:54.221Z" tests="3" failures="0" errors="0" time="0.010">
+    <testcase name="Anónimo recibe 401" time="0.010" classname="04BillingNegTcMp06CheckoutSinToken"/>
+    <testcase name="Respuesta con 'detail' (mensaje estructurado)" time="0.010" classname="04BillingNegTcMp06CheckoutSinToken"/>
+    <testcase name="No se creó preferencia de pago" time="0.010" classname="04BillingNegTcMp06CheckoutSinToken"/>
+  </testsuite>
+  <testsuite name="04 Billing / Webhook con tipo desconocido (ignorado)" id="11855e41-a9f4-4991-ab1f-13e7eaef300e" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.008">
+    <testcase name="Código de estado 200" time="0.008" classname="04BillingWebhookConTipoDesconocidoIgnorado"/>
+    <testcase name="Notificación ignorada" time="0.008" classname="04BillingWebhookConTipoDesconocidoIgnorado"/>
+  </testsuite>
+  <testsuite name="04 Billing / NEG TC-MP-05 Webhook con firma falsa e ID inválido" id="490fd624-ac1a-4cf8-9419-b0645e4e4d01" timestamp="2026-10-15T05:13:54.221Z" tests="1" failures="0" errors="0" time="0.010">
+    <testcase name="Rechazado con 4xx (400/401/403)" time="0.010" classname="04BillingNegTcMp05WebhookConFirmaFalsaEIdInvalido"/>
+  </testsuite>
+  <testsuite name="04 Billing / NEG TC-MP-05 Webhook con firma falsa y pago inexistente" id="c2f7fe7f-2e05-4661-88b9-9459f0292dba" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.526">
+    <testcase name="No procesa el pago (no es 2xx)" time="0.526" classname="04BillingNegTcMp05WebhookConFirmaFalsaYPagoInexistente"/>
+    <testcase name="No se acreditó nada" time="0.526" classname="04BillingNegTcMp05WebhookConFirmaFalsaYPagoInexistente"/>
+  </testsuite>
+  <testsuite name="04 Billing / Saldo sin cambios tras webhooks falsos (TC-MP-05)" id="0bec0fad-89b9-4645-8e8e-69ad065fa594" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.022">
+    <testcase name="Código de estado 200" time="0.022" classname="04BillingSaldoSinCambiosTrasWebhooksFalsosTcMp05"/>
+    <testcase name="El saldo no se alteró" time="0.022" classname="04BillingSaldoSinCambiosTrasWebhooksFalsosTcMp05"/>
+  </testsuite>
+  <testsuite name="05 Eliminacion / NEG Eliminar ebook SIN token" id="dfc294ca-932d-45bd-8c71-2559aae845f9" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.009">
+    <testcase name="Código de estado 401" time="0.009" classname="05EliminacionNegEliminarEbookSinToken"/>
+    <testcase name="Respuesta con 'detail' (mensaje estructurado)" time="0.009" classname="05EliminacionNegEliminarEbookSinToken"/>
+  </testsuite>
+  <testsuite name="05 Eliminacion / NEG TC-EB-03 IDOR: usuario B elimina ebook de A" id="1504e278-2aaa-47af-a04e-a4466ba7bc72" timestamp="2026-10-15T05:13:54.221Z" tests="1" failures="0" errors="0" time="0.024">
+    <testcase name="Denegado (403 o 404)" time="0.024" classname="05EliminacionNegTcEb03IdorUsuarioBEliminaEbookDeA"/>
+  </testsuite>
+  <testsuite name="05 Eliminacion / Eliminar ebook (DELETE)" id="aec4a6e7-788f-4d95-acac-c5399644e148" timestamp="2026-10-15T05:13:54.221Z" tests="2" failures="0" errors="0" time="0.075">
+    <testcase name="DELETE devuelve 204" time="0.075" classname="05EliminacionEliminarEbookDelete"/>
+    <testcase name="Cuerpo vacío" time="0.075" classname="05EliminacionEliminarEbookDelete"/>
+  </testsuite>
+  <testsuite name="05 Eliminacion / Verificar eliminación (GET devuelve 404)" id="b60c40c9-d815-4f48-a398-2721181ad831" timestamp="2026-10-15T05:13:54.221Z" tests="1" failures="0" errors="0" time="0.025">
+    <testcase name="El ebook ya no existe" time="0.025" classname="05EliminacionVerificarEliminacionGetDevuelve404"/>
+  </testsuite>
+  <testsuite name="05 Eliminacion / Eliminar de nuevo (DELETE devuelve 404)" id="bd8120c0-ee24-49fd-9ae9-36af9c67aabd" timestamp="2026-10-15T05:13:54.221Z" tests="1" failures="0" errors="0" time="0.024">
+    <testcase name="Código de estado 404" time="0.024" classname="05EliminacionEliminarDeNuevoDeleteDevuelve404"/>
+  </testsuite>
+</testsuites>

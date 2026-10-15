@@ -1,0 +1,2172 @@
+{
+  "info": {
+    "name": "PintaEbook API - Caja negra",
+    "description": "Coleccion AUT-API (Sprint 4). Prueba la API de PintaEbook por HTTP. Orden de ejecucion: 00 -> 05. Requiere backend en {{baseUrl}}.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "00 Preparacion",
+      "description": "Crea dos usuarios nuevos en cada corrida (A y B) para que la coleccion no dependa de datos previos. B se usa para probar aislamiento entre autores (TC-EB-03).",
+      "item": [
+        {
+          "name": "Registrar usuario A",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ts = Date.now();",
+                  "pm.environment.set('email', `qa.api.${ts}@test.com`);",
+                  "pm.environment.set('email2', `qa.api.b.${ts}@test.com`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Registro devuelve 201\", () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Trae access, refresh y user\", () => { pm.expect(body).to.have.property(\"access\"); pm.expect(body).to.have.property(\"refresh\"); pm.expect(body.user).to.have.property(\"email\"); });",
+                  "pm.test(\"El rol asignado es AUTOR\", () => pm.expect(body.user.role).to.eql(\"AUTOR\"));",
+                  "pm.test(\"La respuesta no expone la contraseña\", () => pm.expect(JSON.stringify(body)).to.not.include(pm.environment.get(\"password\")));",
+                  "pm.environment.set(\"token\", body.access);",
+                  "pm.environment.set(\"refreshToken\", body.refresh);",
+                  "pm.environment.set(\"userId\", body.user.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"first_name\": \"QA\",\n  \"last_name\": \"Api\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Genera un email unico por corrida. Guarda el token del usuario A en {{token}}."
+          }
+        },
+        {
+          "name": "Registrar usuario B",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Registro devuelve 201\", () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.environment.set(\"token2\", body.access);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email2}}\",\n  \"password\": \"{{password}}\",\n  \"first_name\": \"QA\",\n  \"last_name\": \"Otro\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Segundo autor. Guarda su token en {{token2}}."
+          }
+        },
+        {
+          "name": "Saldo inicial del usuario A",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Arranca con créditos gratis (> 0)\", () => pm.expect(body.credits_available).to.be.above(0));",
+                  "pm.environment.set(\"creditsInicial\", body.credits_available);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/balance/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "balance",
+                ""
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 Auth",
+      "description": "Cubre TC-04 (login exitoso) y TC-05 (contraseña incorrecta) + validaciones y acceso sin token.",
+      "item": [
+        {
+          "name": "TC-04 Login exitoso",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Login devuelve 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Responde en menos de 3 s\", () => pm.expect(pm.response.responseTime).to.be.below(3000));",
+                  "pm.test(\"Contrato: access y refresh son strings\", () => { pm.expect(body.access).to.be.a(\"string\").and.not.empty; pm.expect(body.refresh).to.be.a(\"string\").and.not.empty; });",
+                  "pm.test(\"Contrato: user con id, email y role\", () => { pm.expect(body.user).to.include.keys(\"id\", \"email\", \"role\"); pm.expect(body.user.email).to.eql(pm.environment.get(\"email\")); });",
+                  "pm.environment.set(\"token\", body.access);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "TC-04. Verifica que se emita el JWT."
+          }
+        },
+        {
+          "name": "TC-05 Login con contraseña incorrecta",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Credenciales inválidas devuelve 401\", () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Respuesta con 'detail' (mensaje estructurado)\", () => pm.expect(pm.response.json()).to.have.property(\"detail\"));",
+                  "pm.test(\"No se emite token\", () => { pm.expect(body).to.not.have.property(\"access\"); pm.expect(body).to.not.have.property(\"refresh\"); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"ClaveIncorrecta1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "TC-05. No debe emitir token."
+          }
+        },
+        {
+          "name": "Login con payload inválido (email mal formado)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Error estructurado: el campo 'email' trae mensajes\", () => { pm.expect(pm.response.json()).to.have.property(\"email\"); pm.expect(pm.response.json()[\"email\"]).to.be.an(\"array\").that.is.not.empty; });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"esto-no-es-un-email\",\n  \"password\": \"x\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Login con campos faltantes",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Error estructurado: el campo 'email' trae mensajes\", () => { pm.expect(pm.response.json()).to.have.property(\"email\"); pm.expect(pm.response.json()[\"email\"]).to.be.an(\"array\").that.is.not.empty; });",
+                  "pm.test(\"Error estructurado: el campo 'password' trae mensajes\", () => { pm.expect(pm.response.json()).to.have.property(\"password\"); pm.expect(pm.response.json()[\"password\"]).to.be.an(\"array\").that.is.not.empty; });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Registro con email duplicado",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Error estructurado: el campo 'email' trae mensajes\", () => { pm.expect(pm.response.json()).to.have.property(\"email\"); pm.expect(pm.response.json()[\"email\"]).to.be.an(\"array\").that.is.not.empty; });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"first_name\": \"QA\",\n  \"last_name\": \"Dup\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Registro con contraseña corta",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Error estructurado: el campo 'password' trae mensajes\", () => { pm.expect(pm.response.json()).to.have.property(\"password\"); pm.expect(pm.response.json()[\"password\"]).to.be.an(\"array\").that.is.not.empty; });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"corta.{{$timestamp}}@test.com\",\n  \"password\": \"123\",\n  \"first_name\": \"QA\",\n  \"last_name\": \"Corta\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Perfil (me) con token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Contrato: id, email y role\", () => pm.expect(body).to.include.keys(\"id\", \"email\", \"role\"));",
+                  "pm.test(\"Es el usuario autenticado\", () => pm.expect(body.email).to.eql(pm.environment.get(\"email\")));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "Perfil (me) SIN token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Sin token devuelve 401\", () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Respuesta con 'detail' (mensaje estructurado)\", () => pm.expect(pm.response.json()).to.have.property(\"detail\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me",
+                ""
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Ebooks",
+      "description": "Recurso 1: CRUD encadenado. POST -> GET -> PATCH -> PUT; el DELETE esta en la carpeta 04 porque primero se usa el contenido del libro.",
+      "item": [
+        {
+          "name": "Crear ebook (POST)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Crear devuelve 201\", () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Responde en menos de 3 s\", () => pm.expect(pm.response.responseTime).to.be.below(3000));",
+                  "pm.test(\"body: campo 'ebook_id' (string)\", () => { pm.expect(body).to.have.property(\"ebook_id\"); pm.expect(body[\"ebook_id\"]).to.be.a(\"string\"); });",
+                  "pm.test(\"body: campo 'title' (string)\", () => { pm.expect(body).to.have.property(\"title\"); pm.expect(body[\"title\"]).to.be.a(\"string\"); });",
+                  "pm.test(\"body: campo 'description' (string)\", () => { pm.expect(body).to.have.property(\"description\"); pm.expect(body[\"description\"]).to.be.a(\"string\"); });",
+                  "pm.test(\"body: campo 'status' (string)\", () => { pm.expect(body).to.have.property(\"status\"); pm.expect(body[\"status\"]).to.be.a(\"string\"); });",
+                  "pm.test(\"body: campo 'created_at' (string)\", () => { pm.expect(body).to.have.property(\"created_at\"); pm.expect(body[\"created_at\"]).to.be.a(\"string\"); });",
+                  "pm.test(\"body: campo 'updated_at' (string)\", () => { pm.expect(body).to.have.property(\"updated_at\"); pm.expect(body[\"updated_at\"]).to.be.a(\"string\"); });",
+                  "pm.test(\"Nace en estado PROCESSING\", () => pm.expect(body.status).to.eql(\"PROCESSING\"));",
+                  "pm.environment.set(\"ebookId\", body.ebook_id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Ebook QA API\",\n  \"description\": \"Libro creado por la coleccion de Newman\",\n  \"prompt_idea\": \"Guia breve de pruebas de software\",\n  \"quantity_chapters\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Responde 201 al instante; la generacion con IA corre en segundo plano. Guarda {{ebookId}}."
+          }
+        },
+        {
+          "name": "Obtener ebook (GET detalle)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"body: campo 'ebook_id' (string)\", () => { pm.expect(body).to.have.property(\"ebook_id\"); pm.expect(body[\"ebook_id\"]).to.be.a(\"string\"); });",
+                  "pm.test(\"body: campo 'title' (string)\", () => { pm.expect(body).to.have.property(\"title\"); pm.expect(body[\"title\"]).to.be.a(\"string\"); });",
+                  "pm.test(\"body: campo 'description' (string)\", () => { pm.expect(body).to.have.property(\"description\"); pm.expect(body[\"description\"]).to.be.a(\"string\"); });",
+                  "pm.test(\"body: campo 'status' (string)\", () => { pm.expect(body).to.have.property(\"status\"); pm.expect(body[\"status\"]).to.be.a(\"string\"); });",
+                  "pm.test(\"body: campo 'created_at' (string)\", () => { pm.expect(body).to.have.property(\"created_at\"); pm.expect(body[\"created_at\"]).to.be.a(\"string\"); });",
+                  "pm.test(\"body: campo 'updated_at' (string)\", () => { pm.expect(body).to.have.property(\"updated_at\"); pm.expect(body[\"updated_at\"]).to.be.a(\"string\"); });",
+                  "pm.test(\"Es el ebook creado\", () => { pm.expect(body.ebook_id).to.eql(pm.environment.get(\"ebookId\")); pm.expect(body.title).to.eql(\"Ebook QA API\"); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/{{ebookId}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                "{{ebookId}}",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "Listar ebooks (GET lista paginada)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Paginación: count, next, previous, results\", () => { pm.expect(body).to.include.keys(\"count\", \"next\", \"previous\", \"results\"); pm.expect(body.results).to.be.an(\"array\"); });",
+                  "pm.test(\"El ebook creado aparece en el listado\", () => pm.expect(body.results.map(e => e.ebook_id)).to.include(pm.environment.get(\"ebookId\")));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "Editar parcialmente ebook (PATCH)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"El título cambió\", () => pm.expect(body.title).to.eql(\"Ebook QA API (editado)\"));",
+                  "pm.test(\"La descripción se conservó\", () => pm.expect(body.description).to.eql(\"Libro creado por la coleccion de Newman\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/{{ebookId}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                "{{ebookId}}",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Ebook QA API (editado)\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Reemplazar ebook (PUT)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Título y descripción reemplazados\", () => { pm.expect(body.title).to.eql(\"Ebook QA API (PUT)\"); pm.expect(body.description).to.eql(\"Descripción reemplazada\"); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/{{ebookId}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                "{{ebookId}}",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Ebook QA API (PUT)\",\n  \"description\": \"Descripción reemplazada\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "NEG Crear ebook con payload inválido",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Payload inválido devuelve 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Error estructurado: el campo 'title' trae mensajes\", () => { pm.expect(pm.response.json()).to.have.property(\"title\"); pm.expect(pm.response.json()[\"title\"]).to.be.an(\"array\").that.is.not.empty; });",
+                  "pm.test(\"Error estructurado: el campo 'quantity_chapters' trae mensajes\", () => { pm.expect(pm.response.json()).to.have.property(\"quantity_chapters\"); pm.expect(pm.response.json()[\"quantity_chapters\"]).to.be.an(\"array\").that.is.not.empty; });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"sin titulo\",\n  \"quantity_chapters\": 99\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "NEG Crear ebook SIN token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Sin token devuelve 401\", () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Respuesta con 'detail' (mensaje estructurado)\", () => pm.expect(pm.response.json()).to.have.property(\"detail\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"No debería crearse\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "NEG Listar ebooks SIN token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 401\", () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Respuesta con 'detail' (mensaje estructurado)\", () => pm.expect(pm.response.json()).to.have.property(\"detail\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "NEG Obtener ebook SIN token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 401\", () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Respuesta con 'detail' (mensaje estructurado)\", () => pm.expect(pm.response.json()).to.have.property(\"detail\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/{{ebookId}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                "{{ebookId}}",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "NEG TC-EB-03 IDOR: usuario B lee ebook de A (GET)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Denegado (403 o 404)\", () => pm.expect(pm.response.code).to.be.oneOf([403, 404]));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"No filtra datos del ebook\", () => { pm.expect(pm.response.json()).to.not.have.property(\"title\"); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token2}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/{{ebookId}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                "{{ebookId}}",
+                ""
+              ]
+            },
+            "description": "TC-EB-03. El backend responde 404 para no revelar que el libro existe."
+          }
+        },
+        {
+          "name": "NEG TC-EB-03 IDOR: usuario B edita ebook de A (PATCH)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Denegado (403 o 404)\", () => pm.expect(pm.response.code).to.be.oneOf([403, 404]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token2}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/{{ebookId}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                "{{ebookId}}",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Hackeado\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "NEG Ebook inexistente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 404\", () => pm.response.to.have.status(404));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Respuesta con 'detail' (mensaje estructurado)\", () => pm.expect(pm.response.json()).to.have.property(\"detail\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/00000000-0000-0000-0000-000000000000/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                "00000000-0000-0000-0000-000000000000",
+                ""
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Contenido",
+      "description": "Recurso 2: contenido (capitulos y secciones) del ebook. Espera a que termine la generacion y luego lee y edita.",
+      "item": [
+        {
+          "name": "Esperar generación (polling hasta COMPLETED)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const t = Number(pm.environment.get('pollTries') || 0);",
+                  "if (t > 0) { setTimeout(function () {}, 3000); }"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "const s = body.status;",
+                  "const t = Number(pm.environment.get(\"pollTries\") || 0);",
+                  "if (s === \"PROCESSING\" && t < 25) { pm.environment.set(\"pollTries\", t + 1); postman.setNextRequest(pm.info.requestName); }",
+                  "else { pm.environment.unset(\"pollTries\"); pm.test(\"La generación terminó en COMPLETED\", () => pm.expect(s).to.eql(\"COMPLETED\")); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/{{ebookId}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                "{{ebookId}}",
+                ""
+              ]
+            },
+            "description": "Se auto-repite cada 3 s (max. 25 intentos) mientras el estado sea PROCESSING."
+          }
+        },
+        {
+          "name": "Obtener contenido (GET)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Contrato: ebook_id, chapters y updated_at\", () => { pm.expect(body).to.include.keys(\"ebook_id\", \"chapters\", \"updated_at\"); pm.expect(body.chapters).to.be.an(\"array\").that.is.not.empty; });",
+                  "pm.test(\"Cada capítulo trae id, title y sections\", () => { const c = body.chapters[0]; pm.expect(c).to.include.keys(\"id\", \"title\", \"sections\"); pm.expect(c.sections).to.be.an(\"array\").that.is.not.empty; });",
+                  "pm.environment.set(\"chapterId\", body.chapters[0].id);",
+                  "pm.environment.set(\"sectionId\", body.chapters[0].sections[0].id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/{{ebookId}}/content/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                "{{ebookId}}",
+                "content",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "Editar sección (PATCH)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Devuelve ebook_id y updated_at\", () => pm.expect(body).to.include.keys(\"ebook_id\", \"updated_at\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/{{ebookId}}/content/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                "{{ebookId}}",
+                "content",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sections\": [\n    {\n      \"chapter_id\": \"{{chapterId}}\",\n      \"section_id\": \"{{sectionId}}\",\n      \"html\": \"<p>Texto editado desde Newman</p>\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Verificar edición (GET)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"El HTML editado quedó persistido\", () => pm.expect(JSON.stringify(body)).to.include(\"Texto editado desde Newman\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/{{ebookId}}/content/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                "{{ebookId}}",
+                "content",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "NEG Editar contenido con body vacío",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Error estructurado: el campo 'non_field_errors' trae mensajes\", () => { pm.expect(pm.response.json()).to.have.property(\"non_field_errors\"); pm.expect(pm.response.json()[\"non_field_errors\"]).to.be.an(\"array\").that.is.not.empty; });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/{{ebookId}}/content/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                "{{ebookId}}",
+                "content",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "NEG Editar contenido con UUID inválido",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Error por campo dentro de sections\", () => pm.expect(body.sections[0]).to.have.property(\"chapter_id\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/{{ebookId}}/content/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                "{{ebookId}}",
+                "content",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sections\": [\n    {\n      \"chapter_id\": \"no-es-uuid\",\n      \"section_id\": \"tampoco\",\n      \"html\": \"<p>x</p>\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "NEG Obtener contenido SIN token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 401\", () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Respuesta con 'detail' (mensaje estructurado)\", () => pm.expect(pm.response.json()).to.have.property(\"detail\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/{{ebookId}}/content/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                "{{ebookId}}",
+                "content",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "NEG Editar contenido SIN token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 401\", () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Respuesta con 'detail' (mensaje estructurado)\", () => pm.expect(pm.response.json()).to.have.property(\"detail\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/{{ebookId}}/content/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                "{{ebookId}}",
+                "content",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sections\": [\n    {\n      \"chapter_id\": \"{{chapterId}}\",\n      \"section_id\": \"{{sectionId}}\",\n      \"html\": \"<p>x</p>\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "NEG TC-EB-03 IDOR: usuario B lee contenido de A",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Denegado (403 o 404)\", () => pm.expect(pm.response.code).to.be.oneOf([403, 404]));",
+                  "pm.test(\"No filtra capítulos\", () => pm.expect(pm.response.json()).to.not.have.property(\"chapters\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token2}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/{{ebookId}}/content/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                "{{ebookId}}",
+                "content",
+                ""
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 Billing",
+      "description": "Paquetes, saldo, historial, checkout (Mercado Pago modo prueba) y webhook. Cubre TC-MP-05 y TC-MP-06.",
+      "item": [
+        {
+          "name": "Listar paquetes",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Es una lista no vacía\", () => pm.expect(body).to.be.an(\"array\").that.is.not.empty);",
+                  "pm.test(\"Cada paquete: id, nombre, cantidad_creditos, precio\", () => body.forEach(p => pm.expect(p).to.include.keys(\"id\", \"nombre\", \"cantidad_creditos\", \"precio\")));",
+                  "pm.environment.set(\"paqueteId\", body[0].id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/packages/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "packages",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "Saldo después de crear el ebook",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Contrato: credits_available (number) y last_updated (string)\", () => { pm.expect(body.credits_available).to.be.a(\"number\"); pm.expect(body.last_updated).to.be.a(\"string\"); });",
+                  "pm.test(\"Se descontaron 100 créditos por el ebook\", () => pm.expect(body.credits_available).to.eql(Number(pm.environment.get(\"creditsInicial\")) - 100));",
+                  "pm.environment.set(\"creditsAntesWebhook\", body.credits_available);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/balance/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "balance",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear checkout (POST)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 201\", () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Devuelve init_point (URL de pago)\", () => pm.expect(body.init_point).to.be.a(\"string\").and.match(/^https:\\/\\//));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/checkout/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "checkout",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"paquete_id\": \"{{paqueteId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Llama a Mercado Pago (credenciales de prueba): requiere internet."
+          }
+        },
+        {
+          "name": "Historial de compras",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Paginación y al menos 1 transacción (la pendiente)\", () => { pm.expect(body).to.include.keys(\"count\", \"results\"); pm.expect(body.count).to.be.at.least(1); });",
+                  "pm.test(\"Cada fila: id, paquete, monto, estado, fecha\", () => body.results.forEach(t => pm.expect(t).to.include.keys(\"id\", \"paquete\", \"monto\", \"estado\", \"fecha\")));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/transactions/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "transactions",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "NEG Historial con estado inválido",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Error estructurado: el campo 'estado' trae mensajes\", () => { pm.expect(pm.response.json()).to.have.property(\"estado\"); pm.expect(pm.response.json()[\"estado\"]).to.be.an(\"array\").that.is.not.empty; });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/transactions/?estado=inventado",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "transactions",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "estado",
+                  "value": "inventado"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "NEG Checkout con paquete_id no numérico",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Error estructurado: el campo 'paquete_id' trae mensajes\", () => { pm.expect(pm.response.json()).to.have.property(\"paquete_id\"); pm.expect(pm.response.json()[\"paquete_id\"]).to.be.an(\"array\").that.is.not.empty; });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/checkout/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "checkout",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"paquete_id\": \"abc\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "NEG Checkout con paquete inexistente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 404\", () => pm.response.to.have.status(404));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Respuesta con 'detail' (mensaje estructurado)\", () => pm.expect(pm.response.json()).to.have.property(\"detail\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/checkout/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "checkout",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"paquete_id\": 99999\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "NEG TC-MP-06 Checkout SIN token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Anónimo recibe 401\", () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Respuesta con 'detail' (mensaje estructurado)\", () => pm.expect(pm.response.json()).to.have.property(\"detail\"));",
+                  "pm.test(\"No se creó preferencia de pago\", () => pm.expect(pm.response.json()).to.not.have.property(\"init_point\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/checkout/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "checkout",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"paquete_id\": \"{{paqueteId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "TC-MP-06. Debe rechazarse sin procesar la orden."
+          }
+        },
+        {
+          "name": "Webhook con tipo desconocido (ignorado)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Notificación ignorada\", () => pm.expect(body.detail).to.match(/ignorada/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/webhook/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "webhook",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"otro_evento\",\n  \"data\": {\n    \"id\": \"1\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "NEG TC-MP-05 Webhook con firma falsa e ID inválido",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Rechazado con 4xx (400/401/403)\", () => pm.expect(pm.response.code).to.be.oneOf([400, 401, 403]));",
+                  "const body = pm.response.json();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/webhook/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "webhook",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"payment\",\n  \"data\": {\n    \"id\": \"abc-no-numerico\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "TC-MP-05. Cabecera x-signature manipulada. Se rechaza por ID inválido."
+          }
+        },
+        {
+          "name": "NEG TC-MP-05 Webhook con firma falsa y pago inexistente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"No procesa el pago (no es 2xx)\", () => pm.expect(pm.response.code).to.be.within(400, 499));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"No se acreditó nada\", () => pm.expect(pm.response.json().detail).to.not.eql(\"OK\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/webhook/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "webhook",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"payment\",\n  \"data\": {\n    \"id\": \"1\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "TC-MP-05. El backend no valida x-signature: consulta el pago a Mercado Pago y, al no existir, responde 404. Lo importante: no acredita nada."
+          }
+        },
+        {
+          "name": "Saldo sin cambios tras webhooks falsos (TC-MP-05)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"El saldo no se alteró\", () => pm.expect(body.credits_available).to.eql(Number(pm.environment.get(\"creditsAntesWebhook\"))));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/balance/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "balance",
+                ""
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 Eliminacion",
+      "description": "Cierra el ciclo CRUD del ebook: DELETE y verificacion de que ya no existe.",
+      "item": [
+        {
+          "name": "NEG Eliminar ebook SIN token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 401\", () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Respuesta con 'detail' (mensaje estructurado)\", () => pm.expect(pm.response.json()).to.have.property(\"detail\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/{{ebookId}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                "{{ebookId}}",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "NEG TC-EB-03 IDOR: usuario B elimina ebook de A",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Denegado (403 o 404)\", () => pm.expect(pm.response.code).to.be.oneOf([403, 404]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token2}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/{{ebookId}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                "{{ebookId}}",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "Eliminar ebook (DELETE)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"DELETE devuelve 204\", () => pm.response.to.have.status(204));",
+                  "pm.test(\"Cuerpo vacío\", () => pm.expect(pm.response.text()).to.be.empty);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/{{ebookId}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                "{{ebookId}}",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "Verificar eliminación (GET devuelve 404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"El ebook ya no existe\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/{{ebookId}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                "{{ebookId}}",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "Eliminar de nuevo (DELETE devuelve 404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Código de estado 404\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/ebooks/{{ebookId}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ebooks",
+                "{{ebookId}}",
+                ""
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -36,6 +36,31 @@ def generate_tokens(user: User) -> dict:
         'access': str(refresh.access_token),
     }
 
+def send_welcome_email(user: User) -> None:
+    """
+    Envía el correo de bienvenida a un usuario recién registrado.
+
+    Usa el mismo backend de correo que el OTP (Brevo). Un fallo de envío se
+    registra pero no se propaga: no debe impedir el registro.
+    """
+    name = user.first_name or 'autor/a'
+    try:
+        send_mail(
+            subject='¡Bienvenido/a a Pinta Ebook!',
+            message=(
+                f'Hola {name},\n\n'
+                'Tu cuenta en Pinta Ebook se creó correctamente.\n'
+                'Ya podés crear, editar y exportar tus e-books con ayuda de la IA.\n\n'
+                '¡Que disfrutes escribiendo!\n'
+                'El equipo de Pinta Ebook\n'
+            ),
+            from_email=None,  # usa DEFAULT_FROM_EMAIL
+            recipient_list=[user.email],
+        )
+    except Exception:
+        logger.exception('No se pudo enviar el correo de bienvenida a %s', user.email)
+
+
 def user_data(user):
     return {
         'id': str(user.id),
@@ -80,6 +105,7 @@ def authenticate_google_user(google_jwt: str) -> dict:
         )
         user.set_unusable_password()
         user.save()
+        send_welcome_email(user)
 
     # 4. Generar nuestros tokens JWT locales
     tokens = generate_tokens(user)

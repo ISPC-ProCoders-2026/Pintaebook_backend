@@ -24,7 +24,7 @@ El backend implementa una arquitectura modular y desacoplada con persistencia h�
 | Sanitización HTML | nh3 (basado en Rust) |
 | Autenticación | SimpleJWT + Google OAuth 2.0 / OpenID Connect |
 | Pagos | Mercado Pago (Checkout Pro) |
-| Correo (OTP) | Brevo vía API HTTP (`django-anymail`) |
+| Correo (OTP y bienvenida) | Brevo vía API HTTP (`django-anymail`) |
 | Contenedores | Docker + Docker Compose |
 
 ---
@@ -205,7 +205,7 @@ AI_MOCK_MODE=FALSE
 # Google OAuth (opcional)
 GOOGLE_CLIENT_ID=tu-google-client-id.apps.googleusercontent.com
 
-# Correo para el OTP de recuperación de contraseña (Brevo)
+# Correo (Brevo): OTP de recuperación de contraseña y bienvenida al registrarse
 EMAIL_BACKEND=anymail.backends.brevo.EmailBackend
 BREVO_API_KEY=tu-api-key-v3-de-brevo
 DEFAULT_FROM_EMAIL=Pinta Ebook <remitente-verificado-en-brevo@gmail.com>
@@ -258,13 +258,17 @@ Todas las rutas protegidas requieren: `Authorization: Bearer <access_token>`
 
 | Método | Ruta | Descripción | Acceso |
 |---|---|---|---|
-| POST | `/api/auth/register/` | Registro de nuevo autor | Público |
+| POST | `/api/auth/register/` | Registro de nuevo autor (envía correo de bienvenida) | Público |
 | POST | `/api/auth/login/` | Login con credenciales (retorna JWT) | Público |
 | POST | `/api/auth/google/` | Login federado con Google OAuth | Público |
 | POST | `/api/auth/refresh/` | Renovar access token | Público |
 | GET | `/api/auth/me/` | Perfil del usuario autenticado | Privado |
 | POST | `/api/auth/password-reset/request/` | Envía un código OTP de 6 dígitos al correo de la cuenta | Público |
 | POST | `/api/auth/password-reset/confirm/` | Valida el OTP y establece la nueva contraseña | Público |
+
+#### Correo de bienvenida
+
+Al registrarse (por `/api/auth/register/` o la primera vez con Google) se envía un correo de bienvenida al email del usuario, con el mismo Brevo del OTP. Si el envío falla, el registro igual se completa. Guía: `documentacion-guia/workflow_correo_bienvenida.md`.
 
 #### Recuperar contraseña (OTP por correo)
 
