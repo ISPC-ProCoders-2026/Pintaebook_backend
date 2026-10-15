@@ -73,11 +73,11 @@ porque la espera de la IA se repite hasta que el libro termina). Se ejecutan en 
 | Carpeta | Qué hace | Casos de prueba |
 |---|---|---|
 | **00 Preparacion** | Registra dos usuarios nuevos (A y B) y lee el saldo inicial | — |
-| **01 Auth** | Login correcto e incorrecto, validaciones, `me` con y sin token | TC-04, TC-05 |
-| **02 Ebooks** | **CRUD encadenado**: POST → GET → GET lista → PATCH → PUT, más negativas | TC-EB-03 |
-| **03 Contenido** | Espera a que la IA termine, lee y edita secciones, negativas | TC-EB-03 |
-| **04 Billing** | Paquetes, saldo, checkout, historial, webhook con firma falsa | TC-MP-05, TC-MP-06 |
-| **05 Eliminacion** | DELETE del ebook y comprobación de que ya no existe | TC-EB-03 |
+| **01 Auth** | Login correcto e incorrecto, validaciones, `me` con y sin token | TC-API-01, TC-API-02 |
+| **02 Ebooks** | **CRUD encadenado**: POST → GET → GET lista → PATCH → PUT, más negativas | TC-API-03, 04, 05, 08 |
+| **03 Contenido** | Espera a que la IA termine, lee y edita secciones, negativas | TC-API-06, 07, 08 |
+| **04 Billing** | Paquetes, saldo, checkout, historial, webhook con firma falsa | TC-API-09, TC-API-10 |
+| **05 Eliminacion** | DELETE del ebook y comprobación de que ya no existe | TC-API-03, 08 |
 
 ### Recursos con flujo encadenado
 
@@ -95,13 +95,26 @@ porque la espera de la IA se repite hasta que el libro termina). Se ejecutan en 
 
 ### Trazabilidad con los casos de prueba
 
-| TC | Petición(es) de la colección | Resultado |
-|---|---|---|
-| TC-04 | `01 Auth / TC-04 Login exitoso` | Pasa |
-| TC-05 | `01 Auth / TC-05 Login con contraseña incorrecta` | Pasa |
-| TC-EB-03 | Peticiones `NEG TC-EB-03 IDOR ...` en carpetas 02, 03 y 05 | Pasa (responde **404**, no revela que el libro existe) |
-| TC-MP-05 | `04 Billing / NEG TC-MP-05 ...` y `Saldo sin cambios ...` | Pasa |
-| TC-MP-06 | `04 Billing / NEG TC-MP-06 Checkout SIN token` | Pasa (401) |
+Los IDs son los de la hoja "Test Cases API" de la planilla. `TC-API-01` y `TC-API-02` son la
+versión por API de TC-04 y TC-05 (que se probaron manualmente por la interfaz).
+
+| TC | Qué valida | Petición(es) de la colección (carpeta / nombre) | Resultado |
+|---|---|---|---|
+| TC-API-01 | Login exitoso emite JWT | `01 Auth / TC-API-01 Login exitoso` | Pasa |
+| TC-API-02 | Contraseña incorrecta no emite token (401) | `01 Auth / TC-API-02 Login con contraseña incorrecta` | Pasa |
+| TC-API-03 | CRUD encadenado de e-book | `02 Ebooks / Crear ... Reemplazar ebook` y `05 Eliminacion / Eliminar ... Verificar eliminación` | Pasa |
+| TC-API-04 | Crear e-book con payload inválido (400) | `02 Ebooks / NEG Crear ebook con payload inválido` | Pasa |
+| TC-API-05 | Acceso a e-books sin token (401) | `02 Ebooks / NEG ... SIN token` | Pasa |
+| TC-API-06 | Leer y editar contenido | `03 Contenido / Obtener contenido` ... `Verificar edición` | Pasa |
+| TC-API-07 | Editar contenido con datos inválidos (400) | `03 Contenido / NEG Editar contenido con body vacío` y `... UUID inválido` | Pasa |
+| TC-API-08 | Aislamiento entre autores (IDOR) | `NEG TC-API-08 IDOR ...` en carpetas 02, 03 y 05 | Pasa (responde **404**, no revela que el libro existe) |
+| TC-API-09 | Webhook sin firma válida no altera saldos | `04 Billing / NEG TC-API-09 ...` y `Saldo sin cambios ...` | **Falla parcial** (ver nota) |
+| TC-API-10 | Checkout sin token (401) | `04 Billing / NEG TC-API-10 Checkout SIN token` | Pasa (401) |
+
+> **Nota sobre TC-API-09.** El caso espera rechazo por firma inválida (400, 401 o 403). El backend
+> **no valida la cabecera `x-signature`**: su defensa es consultar el pago real a Mercado Pago.
+> Con un ID no numérico responde 400; con un ID numérico inexistente responde 404. En ambos casos
+> **no se acreditan créditos** (la colección lo comprueba comparando el saldo antes y después).
 
 ---
 
