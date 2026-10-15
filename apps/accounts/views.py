@@ -19,6 +19,7 @@ from .services import (
     confirm_password_reset,
     generate_tokens,
     request_password_reset,
+    send_welcome_email,
 )
 
 
@@ -54,6 +55,7 @@ class RegisterView(APIView):
         serializer.is_valid(raise_exception=True)
 
         user = serializer.save()
+        send_welcome_email(user)
         tokens = generate_tokens(user)
 
         return Response(
